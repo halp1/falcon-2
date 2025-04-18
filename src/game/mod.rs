@@ -1,25 +1,72 @@
 use std::collections::VecDeque;
 
 pub mod data;
-use data::{KickTable, Mino};
+use data::{ComboTable, KickTable, Mino, Spin};
+use garbage::damage_calc;
 
-const BOARD_WIDTH: usize = 10;
-const BOARD_HEIGHT: usize = 40;
-const BOARD_BUFFER: usize = 20;
+mod garbage;
 
+pub const BOARD_WIDTH: usize = 10;
+pub const BOARD_HEIGHT: usize = 40;
+pub const BOARD_BUFFER: usize = 20;
+
+pub fn print_board(board: Vec<u64>, garbage_height: u8) {
+  let mut start_row = 0;
+  for y in (0..BOARD_HEIGHT).rev() {
+    let mut empty_row = true;
+    for col in board.iter() {
+      if (col & (1 << y)) != 0 {
+        empty_row = false;
+        break;
+      }
+    }
+    if !empty_row {
+      start_row = y;
+      break;
+    }
+  }
+
+  print!("+");
+  for _ in 0..board.len() {
+    print!("--");
+  }
+  println!("+");
+  for y in (0..=start_row).rev() {
+    print!("|");
+    for col in board.iter() {
+      if (col & (1 << y)) != 0 {
+        if y < garbage_height as usize {
+          print!("\x1b[47m  \x1b[0m");
+        } else {
+          print!("\x1b[41m  \x1b[0m");
+        }
+      } else {
+        print!("  ");
+      }
+    }
+    println!("|");
+  }
+  print!("+");
+  for _ in 0..board.len() {
+    print!("--");
+  }
+  println!("+");
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct CollisionMap {
-  states: [[u64; 10]; 4],
+  pub states: [[u64; BOARD_WIDTH + 2]; 4],
 }
 
 impl CollisionMap {
   fn new(board: &[u64; 10], piece: &Falling) -> CollisionMap {
-    let mut states = [[0u64; 10]; 4];
+    let mut states = [[0u64; BOARD_WIDTH + 2]; 4];
 
     for rot in 0usize..4usize {
-      for (dx, dy) in piece.mino.rot(piece.rot) {
+      for (dx, dy) in piece.mino.rot(rot as u8) {
         let dx = *dx as usize;
-        for x in 0..BOARD_WIDTH {
-          let col = if x >= dx {
+        for x in 0..BOARD_WIDTH + 2 {
+          let col = if x >= dx && x - dx < BOARD_WIDTH {
             board.get(x - dx).copied().unwrap_or(!0u64)
           } else {
             !0u64
@@ -44,8 +91,8 @@ impl CollisionMap {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Board {
-  cols: [u64; BOARD_WIDTH],
-  garbage: u8,
+  pub cols: [u64; BOARD_WIDTH],
+  pub garbage: u8,
 }
 
 impl Board {
@@ -70,18 +117,19 @@ impl Board {
     (self.cols[x] & (1 << y)) != 0
   }
 
-  pub fn clear(&mut self) -> (u16, bool) {
+  pub fn clear(&mut self, max: u8) -> (u8, bool) {
     let mut cleared = 0;
     let mut garbage_cleared = false;
 
-    for y in BOARD_HEIGHT..0 {
+    for y in (0u8..max + 1).rev() {
       for x in 0..BOARD_WIDTH {
         if self.cols[x] & (1 << y) == 0 {
           break;
         }
         if x == BOARD_WIDTH - 1 {
           cleared += 1;
-          if y < self.garbage as usize {
+
+          if y < self.garbage {
             garbage_cleared = true;
             self.garbage -= 1;
           }
@@ -98,6 +146,16 @@ impl Board {
     }
 
     (cleared, garbage_cleared)
+  }
+
+  pub fn is_pc(&self) -> bool {
+    for col in self.cols {
+      if col & (1 << (BOARD_HEIGHT - 1)) != 0 {
+        return true;
+      }
+    }
+
+    false
   }
 
   pub fn insert_garbage(&mut self, amount: u8, column: u8) {
@@ -123,48 +181,8 @@ impl Board {
     }
   }
 
-  #[cfg(debug_assertions)]
   pub fn print(&self) {
-    let mut start_row = 0;
-    for y in (0..BOARD_HEIGHT).rev() {
-      let mut empty_row = true;
-      for x in 0..BOARD_WIDTH {
-        if (self.cols[x] & (1 << y)) != 0 {
-          empty_row = false;
-          break;
-        }
-      }
-      if !empty_row {
-        start_row = y;
-        break;
-      }
-    }
-
-    print!("+");
-    for _ in 0..BOARD_WIDTH {
-      print!("--");
-    }
-    println!("+");
-    for y in (0..=start_row).rev() {
-      print!("|");
-      for x in 0..BOARD_WIDTH {
-        if (self.cols[x] & (1 << y)) != 0 {
-          if y < self.garbage as usize {
-            print!("\x1b[47m  \x1b[0m");
-          } else {
-            print!("\x1b[41m  \x1b[0m");
-          }
-        } else {
-          print!("  ");
-        }
-      }
-      println!("|");
-    }
-    print!("+");
-    for _ in 0..BOARD_WIDTH {
-      print!("--");
-    }
-    println!("+");
+    print_board(Vec::from(self.cols), self.garbage);
   }
 
   pub fn collision_map(&self, piece: &Falling) -> CollisionMap {
@@ -198,14 +216,14 @@ impl Board {
   }
 }
 
-type Queue = VecDeque<Mino>;
+type Queue = Vec<Mino>;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Falling {
-  x: u8,
-  y: u8,
-  rot: u8,
-  mino: Mino,
+  pub x: u8,
+  pub y: u8,
+  pub rot: u8,
+  pub mino: Mino,
 }
 
 impl Falling {
@@ -214,21 +232,35 @@ impl Falling {
   }
 }
 
+pub struct GameConfig {
+  pub b2b_charging: bool,
+  pub b2b_charge_at: i16,
+  pub b2b_charge_base: i16,
+  pub b2b_chaining: bool,
+  pub combo_table: ComboTable,
+  pub garbage_multiplier: f32,
+  pub pc_b2b: u16,
+  pub garbage_special_bonus: bool,
+}
+
+#[derive(Clone, Debug)]
 pub struct Garbage {
   pub col: u8,
   pub amt: u8,
   pub time: u8,
 }
 
+#[derive(Clone, Debug)]
 pub struct Game {
   pub board: Board,
-  pub queue: Queue,
-  pub b2b: u32,
-  pub combo: u32,
+  pub queue: VecDeque<Mino>,
+  pub b2b: i16,
+  pub combo: i16,
   pub hold: Option<Mino>,
   pub piece: Falling,
   pub garbage: VecDeque<Garbage>,
   pub collision_map: CollisionMap,
+  pub spin: Spin,
 }
 
 impl Game {
@@ -246,36 +278,30 @@ impl Game {
     let collision_map = board.collision_map(&piece);
 
     Game {
-      b2b: 0,
-      combo: 0,
+      b2b: -1,
+      combo: -1,
       board,
       queue: VecDeque::from_iter(queue[1..].iter().cloned()),
       hold: None,
       piece,
       garbage: VecDeque::new(),
       collision_map,
+      spin: Spin::None,
     }
   }
 
   // Returns (success, spin, tst_or_fin)
   pub fn rotate(&mut self, amount: u8) -> (bool, bool, bool) {
     let to = (self.piece.rot + amount) % 4;
-    let target_data = self.piece.mino.rot(to);
 
     let piece_x = self.piece.x;
     let piece_y = self.piece.y;
 
-    let mut collision = false;
-    for &(x, y) in target_data {
-      let nx = piece_x - x;
-      let ny = piece_y - y;
-      if self.board.is_occupied(nx as i8, ny as i8) {
-        collision = true;
-        break;
-      }
-    }
-
-    if !collision {
+    if !self.collision_map.test(
+			self.piece.x,
+			self.piece.y,
+			to,
+		) {
       self.piece.rot = to;
       return (true, false, false);
     }
@@ -285,21 +311,15 @@ impl Game {
     let kickset = KickTable::SRSPlus.data(self.piece.mino, from, to);
 
     for &(dx, dy) in kickset.iter() {
-      let mut valid = true;
-      for &(x, y) in target_data {
-        let nx = (piece_x - x) as i8 + dx;
-        let ny = (piece_y - y) as i8 - dy;
-        if self.board.is_occupied(nx, ny) {
-          valid = false;
-          break;
-        }
-      }
-
-      if valid {
+      if !self.collision_map.test(
+        (self.piece.x as i8 + dx) as u8,
+        (self.piece.y as i8 - dy) as u8,
+        to,
+      ) {
         let is_tst_or_fin =
           (((from == 2 && to == 3) || (from == 0 && to == 3)) && dx == 1 && dy == -2)
             || (((from == 2 && to == 1) || (from == 0 && to == 1)) && dx == -1 && dy == -2);
-        self.piece.x = (piece_x as i8 - dx) as u8;
+        self.piece.x = (piece_x as i8 + dx) as u8;
         self.piece.y = (piece_y as i8 - dy) as u8;
         self.piece.rot = to;
         return (true, true, is_tst_or_fin);
@@ -378,7 +398,18 @@ impl Game {
     moved
   }
 
-  pub fn next_piece(&mut self) -> bool {
+  pub fn hold(&mut self) {
+    if let Some(hold) = self.hold {
+      self.hold = Some(self.piece.mino);
+      self.piece.mino = hold;
+    } else {
+      assert!(self.queue.len() > 0, "Queue is empty");
+      self.hold = Some(self.piece.mino);
+      self.next_piece();
+    }
+  }
+
+  pub fn next_piece(&mut self) {
     assert!(self.queue.len() > 0, "Queue is empty");
     let next = self.queue.pop_front().unwrap();
 
@@ -389,31 +420,95 @@ impl Game {
     self.piece.x = ((BOARD_WIDTH + tetromino.w as usize) / 2) as u8 - 1;
     self.piece.y = (BOARD_HEIGHT - BOARD_BUFFER) as u8;
     self.piece.rot = 0;
-
-    self.collision_map = self.board.collision_map(&self.piece);
-
-    self
-      .collision_map
-      .test(self.piece.x, self.piece.y, self.piece.rot)
   }
 
-  pub fn hard_drop(&mut self) -> bool {
+	pub fn topped_out(&self) -> bool {
+		self
+      .collision_map
+      .test(self.piece.x, self.piece.y, self.piece.rot)
+	}
+
+	pub fn regen_collision_map(&mut self) {
+		self.collision_map = self.board.collision_map(&self.piece);
+	}
+
+  pub fn hard_drop(&mut self, config: &GameConfig) -> u16 {
     self.soft_drop();
 
-    println!("({} {})", self.piece.x, self.piece.y);
-    let mut cb = Board::new();
-    cb.cols = self.collision_map.states[self.piece.rot as usize].clone();
-    cb.print();
+    let blocks = self.piece.blocks();
 
-    for &(x, y) in self.piece.blocks() {
+    for &(x, y) in blocks {
       self
         .board
         .set((self.piece.x - x) as usize, (self.piece.y - y) as usize);
     }
 
-    let (cleared, garbage_cleared) = self.board.clear();
+    let (cleared, garbage_cleared) = self.board.clear(self.piece.y);
 
-    if cleared == 0 {
+    let pc = self.board.is_pc();
+
+    let mut broke_b2b = Option::from(self.b2b);
+    if cleared > 0 {
+      self.combo += 1;
+      if (self.spin != Spin::None || cleared >= 4) && !(pc && config.pc_b2b > 0) {
+        self.b2b += 1;
+        broke_b2b = None;
+      }
+      if pc && config.pc_b2b > 0 {
+        self.b2b += config.pc_b2b as i16;
+        broke_b2b = None;
+      }
+
+      if broke_b2b.is_some() {
+        self.b2b = -1;
+      }
+    } else {
+      self.combo = -1;
+      broke_b2b = None;
+    }
+
+    let garbage_special_bonus = if config.garbage_special_bonus
+      && garbage_cleared
+      && (self.spin != Spin::None || cleared >= 4)
+    {
+      1
+    } else {
+      0
+    } as f32;
+
+    let mut sent = (damage_calc(
+      cleared,
+      self.spin,
+      self.b2b,
+      self.combo,
+      config.combo_table,
+      config.b2b_chaining,
+    ) * config.garbage_multiplier
+      + garbage_special_bonus) as u16;
+
+    if let Some(b2b) = broke_b2b {
+      if config.b2b_charging && b2b + 1 > config.b2b_charge_at {
+        sent += ((b2b - config.b2b_charge_at + config.b2b_charge_base + 1) as f32
+          * config.garbage_multiplier) as u16;
+      }
+    }
+
+    if cleared > 0 {
+      while sent > 0 && !self.garbage.is_empty() {
+        let g = self.garbage.front_mut().unwrap();
+
+        let g16 = g.amt as u16;
+
+        if g16 > sent {
+          g.amt -= sent as u8;
+          sent = 0;
+          break;
+        } else {
+          sent -= g16;
+          self.garbage.pop_front();
+        }
+      }
+    } else {
       while !self.garbage.is_empty() && self.garbage.front().unwrap().time == 0 {
         let g = self.garbage.pop_front().unwrap();
         self.board.insert_garbage(g.amt, g.col);
@@ -426,8 +521,10 @@ impl Game {
       }
     }
 
+    self.spin = Spin::None;
+
     self.next_piece();
 
-    true
+    sent
   }
 }
