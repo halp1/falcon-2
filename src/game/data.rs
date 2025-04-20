@@ -269,6 +269,7 @@ impl ComboTable {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(u8)]
 pub enum Move {
   None,
   Left,
