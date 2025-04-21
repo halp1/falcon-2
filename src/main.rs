@@ -55,7 +55,7 @@ fn main() {
   // println!("Search completed in: {:?}", duration);
 
 	let start = Instant::now();
-	let res = search::search(game, config, 3);
+	let res = search::search(game, config, 4);
 	let duration = start.elapsed();
 	println!("Search completed in: {:?}", duration);
 }
