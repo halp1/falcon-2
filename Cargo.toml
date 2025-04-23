@@ -7,3 +7,13 @@ edition = "2024"
 arrayvec = "0.7.6"
 bitvec = "1.0.1"
 tinyset = "0.5.2"
+
+[profile.profiling]
+inherits = "release"
+debug = true
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+pgo = true

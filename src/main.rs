@@ -1,8 +1,9 @@
 mod game;
-use game::data::Mino;
+use game::{data::Mino, queue::{Bag, Queue}};
 use std::time::Instant;
 
 mod search;
+
 
 fn main() {
   let config = &game::GameConfig {
@@ -16,17 +17,9 @@ fn main() {
     garbage_special_bonus: false,
   };
 
-  let mut game = game::Game::new(vec![
-    Mino::L,
-    Mino::S,
-    Mino::T,
-    Mino::I,
-    Mino::J,
-    Mino::Z,
-    Mino::O,
-    Mino::I,
-    Mino::O,
-  ]);
+	let mut queue = Queue::new(Bag::Bag7, 0, 16);
+
+  let mut game = game::Game::new(queue.shift(), queue.get_front_16());
   // for _ in 0..7 {
   //   game.hard_drop(config);
   //   game.board.print();
@@ -42,7 +35,7 @@ fn main() {
   // game.hard_drop(config);
   // game.board.print();
 
-	// expansion test
+  // expansion test
   // let start = Instant::now();
   // let res = search::expand(game.clone(), config);
   // let duration = start.elapsed();
@@ -54,8 +47,40 @@ fn main() {
   // println!("Total games found: {}", res.len());
   // println!("Search completed in: {:?}", duration);
 
-	let start = Instant::now();
-	let res = search::search(game, config, 4);
-	let duration = start.elapsed();
-	println!("Search completed in: {:?}", duration);
+  // let mut avg_time = 0f32;
+  // let iters = 10;
+
+  // for i in 0..iters + 5 {
+  //   let g = game.clone();
+  //   let start = Instant::now();
+  //   let res = search::search(g, config, 4);
+  //   let duration = start.elapsed();
+  //   if i == iters + 5 - 1 {
+  //     res.unwrap().1.board.print();
+  //   }
+  //   if i > 5 {
+  //     avg_time += duration.as_secs_f32();
+  //   }
+  // }
+  // avg_time /= iters as f32;
+  // println!("Average search time: {:?}ms", avg_time * 1000.0);
+
+	loop {
+		let res = search::search(game.clone(), config, 4).unwrap();
+
+		game.piece.x = res.0.0;
+		game.piece.y = res.0.1;
+		game.piece.rot = res.0.2;
+
+		res.1.board.print();
+		println!("{} {} {} {}", game.piece.mino.str(), res.0.0, res.0.1, res.0.2);
+
+		game.hard_drop(config);
+
+		queue.shift();
+		game.queue_ptr = 0;
+		game.queue = queue.get_front_16();
+
+		game.board.print();
+	}
 }

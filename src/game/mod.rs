@@ -5,10 +5,15 @@ use data::{ComboTable, KickTable, Mino, Spin};
 use garbage::damage_calc;
 
 mod garbage;
+pub mod queue;
+pub mod rng;
+
 
 pub const BOARD_WIDTH: usize = 10;
 pub const BOARD_HEIGHT: usize = 40;
 pub const BOARD_BUFFER: usize = 20;
+pub const CENTER_4: std::ops::RangeInclusive<usize> = (BOARD_WIDTH / 2 - 2)..=(BOARD_WIDTH / 2 + 2);
+pub const FULL_WIDTH: std::ops::Range<usize> = 0..BOARD_WIDTH;
 
 pub fn print_board(board: Vec<u64>, garbage_height: u8) {
   let mut start_row = 0;
@@ -80,12 +85,12 @@ impl CollisionMap {
   }
 
   pub fn test(&self, x: u8, y: u8, rot: u8) -> bool {
-    let res = self.states[rot as usize]
-      .get(x as usize)
-      .map(|c| c & (1 << y) != 0)
-      .unwrap_or(true);
-
-    res
+    let x = x as usize;
+    let y = y as usize;
+    if x >= BOARD_WIDTH + 2 || y >= BOARD_HEIGHT {
+      return true;
+    }
+    (self.states[rot as usize][x] >> y) & 1 != 0
   }
 }
 
@@ -103,8 +108,9 @@ impl Board {
     }
   }
 
+  #[inline(always)]
   pub fn set(&mut self, x: usize, y: usize) {
-    assert!(x < BOARD_WIDTH && y < BOARD_HEIGHT);
+    debug_assert!(x < BOARD_WIDTH && y < BOARD_HEIGHT);
     self.cols[x] |= 1 << y;
   }
 
@@ -117,32 +123,73 @@ impl Board {
     (self.cols[x] & (1 << y)) != 0
   }
 
-  pub fn clear(&mut self, max: u8) -> (u8, bool) {
-    let mut cleared = 0;
-    let mut garbage_cleared = false;
+  // pub fn clear(&mut self, from: u8, to: u8) -> (u8, bool) {
+  //     let mut cleared = 0;
+  //     let mut garbage_cleared = false;
 
-    for y in (0u8..max + 1).rev() {
-      for x in 0..BOARD_WIDTH {
-        if self.cols[x] & (1 << y) == 0 {
-          break;
+  //     for y in (from..to + 1).rev() {
+  //         for x in FULL_WIDTH {
+  //             if self.cols[x] & (1 << y) == 0 {
+  //                 break;
+  //             }
+  //             if x == BOARD_WIDTH - 1 {
+  //                 cleared += 1;
+
+  //                 if y < self.garbage {
+  //                     garbage_cleared = true;
+  //                     self.garbage -= 1;
+  //                 }
+
+  //                 for clear_x in FULL_WIDTH {
+  //                     let low_mask = (1u64 << y) - 1;
+  //                     let low = self.cols[clear_x] & low_mask;
+
+  //                     let high = self.cols[clear_x] >> (y + 1);
+  //                     self.cols[clear_x] = (high << y) | low;
+  //                 }
+  //             }
+  //         }
+  //     }
+
+  //     (cleared, garbage_cleared)
+  // }
+
+  #[inline(always)]
+  fn clear_column(bits: u64, to_clear: u64) -> u64 {
+    let mut out = 0u64;
+    let mut dst = 0;
+    for src in 0..BOARD_HEIGHT {
+      let m = 1u64 << src;
+      if to_clear & m == 0 {
+        // keep this row
+        if bits & m != 0 {
+          out |= 1u64 << dst;
         }
-        if x == BOARD_WIDTH - 1 {
-          cleared += 1;
-
-          if y < self.garbage {
-            garbage_cleared = true;
-            self.garbage -= 1;
-          }
-
-          for clear_x in 0..BOARD_WIDTH {
-            let low_mask = (1u64 << y) - 1;
-            let low = self.cols[clear_x] & low_mask;
-
-            let high = self.cols[clear_x] >> (y + 1);
-            self.cols[clear_x] = (high << y) | low;
-          }
-        }
+        dst += 1;
       }
+    }
+    out
+  }
+
+  pub fn clear(&mut self, from: u8, to: u8) -> (u8, bool) {
+    let full_rows_mask = self.cols.iter().copied().fold(!0u64, |acc, col| acc & col);
+
+    let window_mask = ((1u64 << (to - from + 1)) - 1) << from;
+    let rows_to_clear = (full_rows_mask & window_mask) >> from;
+
+    let cleared = rows_to_clear.count_ones() as u8;
+    if cleared == 0 {
+      return (0, false);
+    }
+
+    let garbage_range_mask = (1u64 << self.garbage) - 1;
+    let garbage_bits = rows_to_clear & garbage_range_mask;
+    let garbage_cleared = garbage_bits != 0;
+
+    self.garbage -= garbage_bits.count_ones() as u8;
+
+    for col in &mut self.cols {
+      *col = Board::clear_column(*col, rows_to_clear);
     }
 
     (cleared, garbage_cleared)
@@ -192,31 +239,28 @@ impl Board {
   // BOARD STATS
 
   pub fn max_height(&self) -> u8 {
-    let mut max_height = 0;
-    for x in 0..BOARD_WIDTH {
-      let col = self.cols[x];
-      if col != 0 {
-        let highest_bit = 63 - col.leading_zeros() as u8;
-        max_height = max_height.max(highest_bit + 1);
+    let mut max_h: u8 = 0;
+    for &col in &self.cols {
+      let h = (64u32 - col.leading_zeros()) as u8;
+      if h > max_h {
+        max_h = h;
       }
     }
-    max_height
+    max_h
   }
 
   pub fn center_height(&self) -> u8 {
-    let mut total_height = 0;
-    for x in (BOARD_WIDTH / 2 - 2)..=(BOARD_WIDTH / 2 + 2) {
+    let mut max_h: u8 = 0;
+    for x in CENTER_4 {
       let col = self.cols[x];
-      if col != 0 {
-        let highest_bit = 63 - col.leading_zeros() as u8;
-        total_height += highest_bit + 1;
+      let h = (64u32 - col.leading_zeros()) as u8;
+      if h > max_h {
+        max_h = h;
       }
     }
-    (total_height / BOARD_WIDTH as u8).max(1)
+    max_h
   }
 }
-
-type Queue = Vec<Mino>;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Falling {
@@ -253,7 +297,8 @@ pub struct Garbage {
 #[derive(Clone, Debug)]
 pub struct Game {
   pub board: Board,
-  pub queue: VecDeque<Mino>,
+  pub queue: [Mino; 16],
+  pub queue_ptr: usize,
   pub b2b: i16,
   pub combo: i16,
   pub hold: Option<Mino>,
@@ -264,24 +309,25 @@ pub struct Game {
 }
 
 impl Game {
-  pub fn new(queue: Vec<Mino>) -> Self {
-    assert!(queue.len() > 0, "Queue must contain at least one piece");
+  pub fn new(piece: Mino, queue: [Mino; 16]) -> Self {
     let tetromino = queue[0].data();
     let board = Board::new();
     let piece = Falling {
       x: ((BOARD_WIDTH + tetromino.w as usize) / 2) as u8 - 1,
       y: (BOARD_HEIGHT - BOARD_BUFFER) as u8,
       rot: 0,
-      mino: queue[0],
+      mino: piece,
     };
 
     let collision_map = board.collision_map(&piece);
+
 
     Game {
       b2b: -1,
       combo: -1,
       board,
-      queue: VecDeque::from_iter(queue[1..].iter().cloned()),
+      queue,
+      queue_ptr: 0,
       hold: None,
       piece,
       garbage: VecDeque::new(),
@@ -294,14 +340,7 @@ impl Game {
   pub fn rotate(&mut self, amount: u8) -> (bool, bool, bool) {
     let to = (self.piece.rot + amount) % 4;
 
-    let piece_x = self.piece.x;
-    let piece_y = self.piece.y;
-
-    if !self.collision_map.test(
-			self.piece.x,
-			self.piece.y,
-			to,
-		) {
+    if !self.collision_map.test(self.piece.x, self.piece.y, to) {
       self.piece.rot = to;
       return (true, false, false);
     }
@@ -319,8 +358,8 @@ impl Game {
         let is_tst_or_fin =
           (((from == 2 && to == 3) || (from == 0 && to == 3)) && dx == 1 && dy == -2)
             || (((from == 2 && to == 1) || (from == 0 && to == 1)) && dx == -1 && dy == -2);
-        self.piece.x = (piece_x as i8 + dx) as u8;
-        self.piece.y = (piece_y as i8 - dy) as u8;
+        self.piece.x = (self.piece.x as i8 + dx) as u8;
+        self.piece.y = (self.piece.y as i8 - dy) as u8;
         self.piece.rot = to;
         return (true, true, is_tst_or_fin);
       }
@@ -403,7 +442,7 @@ impl Game {
       self.hold = Some(self.piece.mino);
       self.piece.mino = hold;
     } else {
-      assert!(self.queue.len() > 0, "Queue is empty");
+      assert!(self.queue_ptr < self.queue.len(), "Queue is empty");
       self.hold = Some(self.piece.mino);
       self.next_piece();
     }
@@ -411,7 +450,8 @@ impl Game {
 
   pub fn next_piece(&mut self) {
     assert!(self.queue.len() > 0, "Queue is empty");
-    let next = self.queue.pop_front().unwrap();
+    let next = self.queue[self.queue_ptr];
+    self.queue_ptr += 1;
 
     self.piece.mino = next;
 
@@ -422,28 +462,37 @@ impl Game {
     self.piece.rot = 0;
   }
 
-	pub fn topped_out(&self) -> bool {
-		self
+  pub fn topped_out(&self) -> bool {
+    self
       .collision_map
       .test(self.piece.x, self.piece.y, self.piece.rot)
-	}
+  }
 
-	pub fn regen_collision_map(&mut self) {
-		self.collision_map = self.board.collision_map(&self.piece);
-	}
+  pub fn regen_collision_map(&mut self) {
+    self.collision_map = self.board.collision_map(&self.piece);
+  }
 
   pub fn hard_drop(&mut self, config: &GameConfig) -> u16 {
     self.soft_drop();
 
     let blocks = self.piece.blocks();
 
+    let mut max_y = blocks[0].1;
+    let mut min_y = blocks[0].1;
+
     for &(x, y) in blocks {
       self
         .board
         .set((self.piece.x - x) as usize, (self.piece.y - y) as usize);
+      if y > max_y {
+        max_y = y;
+      }
+      if y < min_y {
+        min_y = y;
+      }
     }
 
-    let (cleared, garbage_cleared) = self.board.clear(self.piece.y);
+    let (cleared, garbage_cleared) = self.board.clear(self.piece.y - max_y, self.piece.y - min_y);
 
     let pc = self.board.is_pc();
 

@@ -133,29 +133,16 @@ pub enum KickTable {
   SRSPlus,
 }
 
+const INDEX_LOOKUP_TABLE: [[u8; 4]; 4] = [
+  [255, 0, 8, 7],
+  [1, 255, 2, 9],
+  [10, 3, 255, 4],
+  [6, 11, 5, 255],
+];
+
 impl KickTable {
   pub fn get_index(from: u8, to: u8) -> usize {
-    assert!(
-      from < 4 && to < 4 && from != to,
-      "Invalid rotation transition from {} to {}",
-      from,
-      to
-    );
-    match (from, to) {
-      (0, 1) => 0,
-      (1, 0) => 1,
-      (1, 2) => 2,
-      (2, 1) => 3,
-      (2, 3) => 4,
-      (3, 2) => 5,
-      (3, 0) => 6,
-      (0, 3) => 7,
-      (0, 2) => 8,
-      (1, 3) => 9,
-      (2, 0) => 10,
-      (3, 1) => 11,
-      _ => panic!("Invalid rotation transition from {} to {}", from, to),
-    }
+    INDEX_LOOKUP_TABLE[from as usize][to as usize] as usize
   }
 
   pub fn data(&self, mino: Mino, from: u8, to: u8) -> &[(i8, i8); 5] {
@@ -281,6 +268,7 @@ pub enum Move {
 }
 
 impl Move {
+  #[inline(always)]
   pub fn run(&self, game: &mut Game) -> bool {
     match self {
       Move::Left => game.move_left(),
