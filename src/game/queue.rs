@@ -1,7 +1,12 @@
 use std::collections::VecDeque;
 
+use serde::Deserialize;
+
 use super::{data::Mino, rng::RNG};
 
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[serde(tag = "type")]
 pub enum Bag {
   Bag7,
 }
@@ -30,11 +35,15 @@ pub struct Queue {
 }
 
 impl Queue {
-  pub fn new(bag: Bag, seed: u64, min_size: usize) -> Self {
+  pub fn new(bag: Bag, seed: u64, min_size: usize, initial: Vec<Mino>) -> Self {
     assert!(min_size >= 16, "Bag min size must be at least 16");
     let mut rng = RNG::new(seed);
 
     let mut queue: VecDeque<Mino> = VecDeque::with_capacity(min_size + 7);
+
+		for m in initial.iter() {
+			queue.push_back(*m);
+		}
 
     while queue.len() < min_size {
       for mino in rng.shuffle(bag.get_cycle()) {

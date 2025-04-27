@@ -1,4 +1,9 @@
-use super::Game;
+use core::fmt;
+use std::fmt::Formatter;
+
+use serde::{Deserialize, Serialize};
+
+use super::{Game, GameConfig};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mino {
@@ -9,6 +14,20 @@ pub enum Mino {
   S,
   T,
   Z,
+}
+
+impl Mino {
+  pub fn block_str(&self) -> &str {
+    match self {
+      Mino::I => "\x1b[46m  \x1b[49m",
+      Mino::J => "\x1b[44m  \x1b[49m",
+      Mino::L => "\x1b[43m  \x1b[49m",
+      Mino::O => "\x1b[47m  \x1b[49m",
+      Mino::S => "\x1b[102m  \x1b[49m",
+      Mino::T => "\x1b[105m  \x1b[49m",
+      Mino::Z => "\x1b[101m  \x1b[49m",
+    }
+  }
 }
 
 pub struct TetrominoMatrix {
@@ -30,7 +49,7 @@ impl Mino {
   }
 
   pub fn rot(&self, rot: u8) -> &[(u8, u8); 4] {
-    assert!(rot < 4, "Invalid rotation index: {}", rot);
+    debug_assert!(rot < 4, "Invalid rotation index: {}", rot);
 
     let rot = rot as usize;
 
@@ -231,6 +250,33 @@ pub enum Spin {
   Normal,
 }
 
+impl Spin {
+  pub fn str(&self) -> &str {
+    match self {
+      Spin::None => "none",
+      Spin::Mini => "mini",
+      Spin::Normal => "normal",
+    }
+  }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[serde(tag = "type")]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Spins {
+  None,
+  T,
+  TPlus,
+  Mini,
+  MiniPlus,
+  All,
+  AllPlus,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[serde(tag = "type")]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ComboTable {
   None,
@@ -255,7 +301,7 @@ impl ComboTable {
   }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[repr(u8)]
 pub enum Move {
   None,
@@ -265,19 +311,62 @@ pub enum Move {
   CCW,
   CW,
   Flip,
+  DasLeft,
+  DasRight,
+	Hold,
+	HardDrop,
 }
 
 impl Move {
   #[inline(always)]
-  pub fn run(&self, game: &mut Game) -> bool {
+  pub fn run(&self, game: &mut Game, config: &GameConfig) -> bool {
     match self {
       Move::Left => game.move_left(),
       Move::Right => game.move_right(),
       Move::SoftDrop => game.soft_drop(),
-      Move::CCW => game.rotate(3).0,
-      Move::CW => game.rotate(1).0,
-      Move::Flip => game.rotate(2).0,
-      Move::None => false,
+      Move::CCW => game.rotate(3, config).0,
+      Move::CW => game.rotate(1, config).0,
+      Move::Flip => game.rotate(2, config).0,
+      Move::None => panic!("None move called...cf"),
+      Move::DasLeft => game.das_left(),
+      Move::DasRight => game.das_right(),
+			Move::Hold => game.hold(),
+			Move::HardDrop => {
+				game.soft_drop();
+				true
+			}
+    }
+  }
+
+  pub fn str(&self) -> &str {
+    match self {
+      Move::None => "none",
+      Move::Left => "left",
+      Move::Right => "right",
+      Move::SoftDrop => "soft drop",
+      Move::CCW => "ccw",
+      Move::CW => "cw",
+      Move::Flip => "180",
+      Move::DasLeft => "das left",
+      Move::DasRight => "das right",
+			Move::Hold => "hold",
+			Move::HardDrop => "hard drop",
+    }
+  }
+
+	pub fn triangle_key(&self) -> &str {
+    match self {
+      Move::None => panic!("This move doesn't exist"),
+      Move::Left => "moveLeft",
+      Move::Right => "moveRight",
+      Move::SoftDrop => "softDrop",
+      Move::CCW => "rotateCCW",
+      Move::CW => "rotateCW",
+      Move::Flip => "rotate180",
+      Move::DasLeft => "dasLeft",
+      Move::DasRight => "dasRight",
+			Move::Hold => "hold",
+			Move::HardDrop => "hardDrop",
     }
   }
 }
