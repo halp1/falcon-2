@@ -20,4 +20,3 @@ debug = true
 opt-level = 3
 lto = true
 codegen-units = 1
-pgo = true

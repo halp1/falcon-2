@@ -16,23 +16,23 @@ mod search;
 mod protocol;
 
 fn main() {
-  // futures::executor::block_on(protocol::start_server());
+  futures::executor::block_on(protocol::start_server());
 
-  let config = &game::GameConfig {
-    spins: Spins::MiniPlus,
-    b2b_chaining: true,
-    b2b_charging: false,
-    b2b_charge_at: 0,
-    b2b_charge_base: 0,
-    pc_b2b: 0,
-    combo_table: game::data::ComboTable::Multiplier,
-    garbage_multiplier: 1.0,
-    garbage_special_bonus: false,
-  };
+  // let config = &game::GameConfig {
+  //   spins: Spins::MiniPlus,
+  //   b2b_chaining: true,
+  //   b2b_charging: false,
+  //   b2b_charge_at: 0,
+  //   b2b_charge_base: 0,
+  //   pc_b2b: 0,
+  //   combo_table: game::data::ComboTable::Multiplier,
+  //   garbage_multiplier: 1.0,
+  //   garbage_special_bonus: false,
+  // };
 
-  let mut queue = Queue::new(Bag::Bag7, 1230524794, 16, Vec::from([]));
+  // let mut queue = Queue::new(Bag::Bag7, 1230524794, 16, Vec::from([]));
 
-  let mut game = game::Game::new(queue.shift(), queue.get_front_16());
+  // let mut game = game::Game::new(queue.shift(), queue.get_front_16());
 
   // for _ in 0..7 {
   //   game.hard_drop(config);
@@ -164,110 +164,110 @@ fn main() {
 
   // -- PLAY TEST --
 
-  let mut count = 0;
+  // let mut count = 0;
 
-  loop {
-    count += 1;
-		if count == 500 {
-			break;
-		}
+  // loop {
+  //   count += 1;
+  // 	if count == 500 {
+  // 		break;
+  // 	}
 
-    println!(
-      "SEARCHING THROUGH: <{}> {:?}",
-      game.piece.mino.str(),
-      game.queue
-    );
-    let res = search::search(game.clone(), config, 4);
-    if res.is_none() {
-      println!("NO SOLUTION FOUND");
-      break;
-    }
+  //   println!(
+  //     "SEARCHING THROUGH: <{}> {:?}",
+  //     game.piece.mino.str(),
+  //     game.queue
+  //   );
+  //   let res = search::search(game.clone(), config, 4);
+  //   if res.is_none() {
+  //     println!("NO SOLUTION FOUND");
+  //     break;
+  //   }
 
-    let res = res.unwrap();
+  //   let res = res.unwrap();
 
-    if res.0.3 {
-      game.hold();
-    }
+  //   if res.0.3 {
+  //     game.hold();
+  //   }
 
-    game.piece.x = res.0.0;
-    game.piece.y = res.0.1;
-    game.piece.rot = res.0.2;
-    game.spin = res.0.4;
+  //   game.piece.x = res.0.0;
+  //   game.piece.y = res.0.1;
+  //   game.piece.rot = res.0.2;
+  //   game.spin = res.0.4;
 
-    println!("PROJECTION ({} b2b):", res.1.b2b);
-    res.1.board.print();
-    println!(
-      "{} {} {} {}",
-      game.piece.mino.str(),
-      res.0.0,
-      res.0.1,
-      res.0.2
-    );
+  //   println!("PROJECTION ({} b2b):", res.1.b2b);
+  //   res.1.board.print();
+  //   println!(
+  //     "{} {} {} {}",
+  //     game.piece.mino.str(),
+  //     res.0.0,
+  //     res.0.1,
+  //     res.0.2
+  //   );
 
-    game.print();
-    game.hard_drop(config);
-    game.regen_collision_map();
+  //   game.print();
+  //   game.hard_drop(config);
+  //   game.regen_collision_map();
 
-    if count % 15 == 0 {
-      // clean
-      if rand::random_bool(0.5) {
-        game.garbage.push_back(Garbage {
-          amt: 4,
-          col: rand::random::<u8>() % 10,
-          time: 0,
-        });
-      } else {
-        // cheese
-        for _ in 0..2 {
-          game.garbage.push_back(Garbage {
-            amt: 1,
-            col: rand::random::<u8>() % 10,
-            time: 0,
-          });
-        }
-      }
-    }
+  //   if count % 15 == 0 {
+  //     // clean
+  //     if rand::random_bool(0.5) {
+  //       game.garbage.push_back(Garbage {
+  //         amt: 4,
+  //         col: rand::random::<u8>() % 10,
+  //         time: 0,
+  //       });
+  //     } else {
+  //       // cheese
+  //       for _ in 0..2 {
+  //         game.garbage.push_back(Garbage {
+  //           amt: 1,
+  //           col: rand::random::<u8>() % 10,
+  //           time: 0,
+  //         });
+  //       }
+  //     }
+  //   }
 
-    queue.shift();
-    game.queue_ptr = 0;
-    game.queue = queue.get_front_16();
+  //   queue.shift();
+  //   game.queue_ptr = 0;
+  //   game.queue = queue.get_front_16();
 
-    println!("CURRENT ({} b2b):", game.b2b);
-    println!("PIECE #: {}", count);
+  //   println!("CURRENT ({} b2b):", game.b2b);
+  //   println!("PIECE #: {}", count);
 
-    if game.topped_out() {
-      break;
-    }
-  }
+  //   if game.topped_out() {
+  //     break;
+  //   }
+  // }
 
-  println!(
-    "Game over, topped out ({} @seed {}):",
-    game.topped_out(),
-    queue.rng.seed
-  );
-  game.print();
+  // println!(
+  //   "Game over, topped out ({} @seed {}):",
+  //   game.topped_out(),
+  //   queue.rng.seed
+  // );
+  // game.print();
 
-  let mut g = game.clone();
+  // let mut g = game.clone();
 
-  let passed = &mut [0u64; 2048];
-  let res = &mut [(0, 0, 0, Spin::None); 512];
-  let r = search::expand(&mut g, config, passed, res);
-  println!(
-    "Total positions found for {}: {}",
-    game.piece.mino.str(),
-    r.0
-  );
+  // let passed = &mut [0u64; 2048];
+  // let res = &mut [(0, 0, 0, Spin::None); 512];
+  // let r = search::expand(&mut g, config, passed, res);
+  // println!(
+  //   "Total positions found for {}: {}",
+  //   game.piece.mino.str(),
+  //   r.0
+  // );
 
-  for j in 0..r.0 {
-    let mut tester = game.clone();
-    let (x, y, rot, spin) = res[j];
-    tester.piece.x = x;
-    tester.piece.y = y;
-    tester.piece.rot = rot;
-    tester.spin = spin;
-    println!("{} {} {} {}", x, y, rot, spin.str());
-    tester.print();
-    tester.hard_drop(config);
-    println!("------------------------");
-  }
+  // for j in 0..r.0 {
+  //   let mut tester = game.clone();
+  //   let (x, y, rot, spin) = res[j];
+  //   tester.piece.x = x;
+  //   tester.piece.y = y;
+  //   tester.piece.rot = rot;
+  //   tester.spin = spin;
+  //   println!("{} {} {} {}", x, y, rot, spin.str());
+  //   tester.print();
+  //   tester.hard_drop(config);
+  //   println!("------------------------");
+  // }
 }
