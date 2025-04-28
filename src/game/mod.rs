@@ -12,7 +12,11 @@ pub mod rng;
 pub const BOARD_WIDTH: usize = 10;
 pub const BOARD_HEIGHT: usize = 40;
 pub const BOARD_BUFFER: usize = 20;
-pub const CENTER_4: std::ops::RangeInclusive<usize> = (BOARD_WIDTH / 2 - 2)..=(BOARD_WIDTH / 2 + 2);
+
+pub const BOARD_UPPER_HALF: usize = BOARD_HEIGHT / 2;
+pub const BOARD_UPPER_QUARTER: usize = BOARD_HEIGHT / 4 * 3;
+
+pub const CENTER_4: std::ops::Range<usize> = (BOARD_WIDTH / 2 - 2)..(BOARD_WIDTH / 2 + 2);
 pub const FULL_WIDTH: std::ops::Range<usize> = 0..BOARD_WIDTH;
 
 pub fn print_board(board: Vec<u64>, garbage_height: u8, highlight: (Mino, Vec<(u8, u8)>)) {
@@ -31,19 +35,19 @@ pub fn print_board(board: Vec<u64>, garbage_height: u8, highlight: (Mino, Vec<(u
     }
   }
 
-  print!("+");
+  print!("  +");
   for _ in 0..board.len() {
     print!("--");
   }
   println!("+");
   for y in (0..=start_row).rev() {
-    print!("|");
+    print!("{:2}|", y + 1);
     for (x, col) in board.iter().enumerate() {
       if (col & (1 << y)) != 0 {
-        if y < garbage_height as usize {
-          print!("\x1B[48;2;68;68;68m  \x1B[49m");
-        } else if highlight.1.iter().any(|v| v.0 == x as u8 && v.1 == y as u8) {
+        if highlight.1.iter().any(|v| v.0 == x as u8 && v.1 == y as u8) {
           print!("{}", highlight.0.block_str());
+        } else if y < garbage_height as usize {
+          print!("\x1B[48;2;68;68;68m  \x1B[49m");
         } else {
           print!("\x1B[100m  \x1B[49m");
         }
@@ -53,7 +57,7 @@ pub fn print_board(board: Vec<u64>, garbage_height: u8, highlight: (Mino, Vec<(u
     }
     println!("|");
   }
-  print!("+");
+  print!("  +");
   for _ in 0..board.len() {
     print!("--");
   }
@@ -66,7 +70,7 @@ pub struct CollisionMap {
 }
 
 impl CollisionMap {
-  fn new(board: &[u64; 10], piece: &Falling) -> CollisionMap {
+  fn new(board: &[u64; BOARD_WIDTH], piece: &Falling) -> CollisionMap {
     let mut states = [[0u64; BOARD_WIDTH + 2]; 4];
 
     for rot in 0usize..4usize {
@@ -251,6 +255,15 @@ impl Board {
     max_h
   }
 
+	pub fn upper_half_height(&self) -> i32 {
+		return (self.max_height() - BOARD_UPPER_HALF as i32).max(0);
+	}
+
+	pub fn upper_quarter_height(&self) -> i32 {
+		return (self.max_height() - BOARD_UPPER_QUARTER as i32).max(0);
+	}
+		
+
   pub fn center_height(&self) -> i32 {
     let mut max_h: i32 = 0;
     for x in CENTER_4 {
@@ -268,6 +281,39 @@ impl Board {
       .cols
       .iter()
       .map(|&col| (!col & ((1 << (64 - col.leading_zeros())) - 1)).count_ones())
+      .sum::<u32>() as i32
+  }
+
+  pub fn unevenness(&self) -> i32 {
+    let mut unevenness = 0;
+    let mut last = 64 - self.cols[0].leading_zeros();
+
+    for col in self.cols.iter().skip(1) {
+      let h = 64 - col.leading_zeros();
+      unevenness += (last as i32 - h as i32).abs();
+      last = h;
+    }
+
+    unevenness
+  }
+
+  pub fn covered_holes(&self) -> i32 {
+    self
+      .cols
+      .iter()
+      .enumerate()
+      .map(|(x, &col)| {
+        let hole_map = !col & ((1 << (64 - col.leading_zeros())) - 1);
+
+        (hole_map
+          & (if x == 0 { !0u64 } else { self.cols[x - 1] })
+          & (if x == BOARD_WIDTH - 1 {
+            !0u64
+          } else {
+            self.cols[x + 1]
+          }))
+        .count_ones()
+      })
       .sum::<u32>() as i32
   }
 }
@@ -329,7 +375,7 @@ impl Game {
     let board = Board::new();
     let piece = Falling {
       x: ((BOARD_WIDTH + tetromino.w as usize) / 2) as u8 - 1,
-      y: (BOARD_HEIGHT - BOARD_BUFFER) as u8,
+      y: (BOARD_HEIGHT - BOARD_BUFFER) as u8 + 2,
       rot: 0,
       mino: piece,
     };
@@ -592,7 +638,7 @@ impl Game {
     let tetromino = next.data();
 
     self.piece.x = ((BOARD_WIDTH + tetromino.w as usize) / 2) as u8 - 1;
-    self.piece.y = (BOARD_HEIGHT - BOARD_BUFFER) as u8;
+    self.piece.y = (BOARD_HEIGHT - BOARD_BUFFER) as u8 + 2;
     self.piece.rot = 0;
   }
 
@@ -606,7 +652,7 @@ impl Game {
     self.collision_map = self.board.collision_map(&self.piece);
   }
 
-  pub fn hard_drop(&mut self, config: &GameConfig) -> u16 {
+  pub fn hard_drop(&mut self, config: &GameConfig) -> (u16, Option<Spin>) {
     self.soft_drop();
 
     let blocks = self.piece.blocks();
@@ -704,10 +750,16 @@ impl Game {
       }
     }
 
+		let clear_type = if cleared > 0 {
+			Option::Some(self.spin)
+		} else {
+			None
+		};
+
     self.spin = Spin::None;
 
     self.next_piece();
 
-    sent
+    (sent, clear_type)
   }
 }

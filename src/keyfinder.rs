@@ -1,7 +1,7 @@
 use std::path;
 
 use crate::game::{
-  Falling, Game, GameConfig,
+  Game, GameConfig,
   data::{Move, Spin},
 };
 
@@ -124,7 +124,7 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
   let mut front_ptr = 0;
   let mut back_ptr = 1;
 
-  let mut target_blocks = state
+  let target_blocks = state
     .piece
     .mino
     .rot(target.2)

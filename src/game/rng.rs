@@ -3,8 +3,8 @@ const MULTIPLIER: u64 = 16807;
 const MAX_FLOAT: u64 = 2147483646;
 
 pub struct RNG {
-  seed: u64,
-  index: usize,
+  pub seed: u64,
+  pub index: usize,
 }
 
 impl RNG {
@@ -41,10 +41,6 @@ impl RNG {
     }
 
     array
-  }
-
-  pub fn get_seed(&self) -> u64 {
-    self.seed
   }
 
   pub fn set_seed(&mut self, value: u64) {

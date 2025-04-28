@@ -18,8 +18,13 @@ use crate::{
 #[serde(tag = "type")]
 pub enum Incoming {
   Start(Start),
-  InsertGarbage(Vec<Garbage>),
+  InsertGarbage(InsertGarbage),
   Step(Step),
+}
+
+#[derive(Deserialize)]
+pub struct InsertGarbage {
+	garbage: Vec<Garbage>,
 }
 
 #[derive(Deserialize)]
@@ -75,7 +80,7 @@ pub async fn start_server() {
       }
 
       Incoming::InsertGarbage(garbage) => {
-        for gb in garbage {
+        for gb in garbage.garbage {
           game.board.insert_garbage(gb.amt, gb.col);
         }
       }
