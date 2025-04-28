@@ -16,9 +16,9 @@ mod search;
 mod protocol;
 
 fn main() {
-  // futures::executor::block_on(protocol::start_server());
+  futures::executor::block_on(protocol::start_server());
 
-  tests::test_expansion();
+  // tests::test_expansion();
 }
 
 pub mod tests {
