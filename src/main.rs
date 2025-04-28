@@ -16,258 +16,269 @@ mod search;
 mod protocol;
 
 fn main() {
-  futures::executor::block_on(protocol::start_server());
+  // futures::executor::block_on(protocol::start_server());
 
-  // let config = &game::GameConfig {
-  //   spins: Spins::MiniPlus,
-  //   b2b_chaining: true,
-  //   b2b_charging: false,
-  //   b2b_charge_at: 0,
-  //   b2b_charge_base: 0,
-  //   pc_b2b: 0,
-  //   combo_table: game::data::ComboTable::Multiplier,
-  //   garbage_multiplier: 1.0,
-  //   garbage_special_bonus: false,
-  // };
+  tests::test_expansion();
+}
 
-  // let mut queue = Queue::new(Bag::Bag7, 1230524794, 16, Vec::from([]));
+pub mod tests {
+  use super::*;
+  use crate::game::GameConfig;
+  use crate::game::{Game, queue};
+  use crate::search::eval::eval;
+  use crate::search::search;
 
-  // let mut game = game::Game::new(queue.shift(), queue.get_front_16());
+  pub fn init() -> (game::GameConfig, Queue, Game) {
+    let config = game::GameConfig {
+      spins: Spins::MiniPlus,
+      b2b_chaining: true,
+      b2b_charging: false,
+      b2b_charge_at: 0,
+      b2b_charge_base: 0,
+      pc_b2b: 0,
+      combo_table: game::data::ComboTable::Multiplier,
+      garbage_multiplier: 1.0,
+      garbage_special_bonus: false,
+    };
 
-  // for _ in 0..7 {
-  //   game.hard_drop(config);
-  //   game.board.print();
-  // }
-  // game.board.insert_garbage(5, 2);
-  // game.collision_map = game.board.collision_map(&game.piece);
-  // game.board.print();
-  // game.das_left();
-  // game.soft_drop();
-  // game.rotate(3);
-  // game.das_left();
-  // print_board(Vec::from(game.collision_map.states[game.piece.rot as usize]), 0);
-  // game.hard_drop(config);
-  // game.board.print();
+    let mut queue = Queue::new(Bag::Bag7, 1230524794, 16, Vec::from([]));
 
-  // -- EXPANSION TEST --
+    let game = game::Game::new(queue.shift(), queue.get_front_16());
 
-  // let mut avg_time = 0f32;
-  // let iters = 100000;
+    (config, queue, game)
+  }
 
-  // let passed = &mut [0u64; 2048];
-  // let res = &mut [(0, 0, 0, Spin::None); 512];
+  pub fn test_expansion() {
+    let (config, mut queue, mut game) = init();
+    let config = &config;
 
-  // for i in 0..iters + 5 {
-  //   let mut g = game.clone();
-  //   let start = Instant::now();
-  //   let r = search::expand(&mut g, config, passed, res);
-  //   let duration = start.elapsed();
-  //   if i == iters + 5 - 1 {
-  //     println!("Total positions found for {}: {}", game.piece.mino.str(), r.0);
+    let mut avg_time = 0f32;
+    let iters = 100000;
 
-  //     for j in 0..r.0 {
-  //       let mut tester = game.clone();
-  //       let search_game = game.clone();
-  //       let (x, y, rot, spin) = res[j];
-  //       tester.piece.x = x;
-  //       tester.piece.y = y;
-  //       tester.piece.rot = rot;
-  //       tester.spin = spin;
-  //       println!("{} {} {} {}", x, y, rot, spin.str());
-  //       tester.print();
-  //       tester.hard_drop(config);
-  //       search_game.print();
-  //       let key_start = Instant::now();
-  //       let keys = get_keys(search_game, config, (x, y, rot, spin));
-  //       println!(
-  //         "{:?} in {} us",
-  //         keys,
-  //         key_start.elapsed().as_secs_f32() * 1_000_000.0
-  //       );
+    let passed = &mut [0u64; 2048];
+    let res = &mut [(0, 0, 0, Spin::None); 512];
 
-  //       println!("------------------------");
-  //     }
-  //   }
-  //   if i > 5 {
-  //     avg_time += duration.as_secs_f32();
-  //   }
-  // }
+    for i in 0..iters + 5 {
+      let mut g = game.clone();
+      let start = Instant::now();
+      let r = search::expand(&mut g, config, passed, res);
+      let duration = start.elapsed();
+      if i == iters + 5 - 1 {
+        println!(
+          "Total positions found for {}: {}",
+          game.piece.mino.str(),
+          r.0
+        );
 
-  // avg_time /= iters as f32;
-  // println!("Average search time: {:?}us", avg_time * 1_000_000.0);
+        for j in 0..r.0 {
+          let mut tester = game.clone();
+          let search_game = game.clone();
+          let (x, y, rot, spin) = res[j];
+          tester.piece.x = x;
+          tester.piece.y = y;
+          tester.piece.rot = rot;
+          tester.spin = spin;
+          println!("{} {} {} {}", x, y, rot, spin.str());
+          tester.print();
+          tester.hard_drop(config);
+          let key_start = Instant::now();
+          let keys = get_keys(search_game, config, (x, y, rot, spin));
+          println!(
+            "{:?} in {} us",
+            keys,
+            key_start.elapsed().as_secs_f32() * 1_000_000.0
+          );
 
-  // -- EXPANSION BENCH --
-  // let iters = 1000000;
+          println!("------------------------");
+        }
+      }
+      if i > 5 {
+        avg_time += duration.as_secs_f32();
+      }
+    }
 
-  // let mut nodes = 0;
+    avg_time /= iters as f32;
+    println!("Average search time: {:?}us", avg_time * 1_000_000.0);
+  }
 
-  // let passed = &mut [0u64; 2048];
-  // let res = &mut [(0, 0, 0, Spin::None); 512];
+  pub fn bench_expansion() {
+    let (config, mut queue, mut game) = init();
+    let config = &config;
 
-  // let start = Instant::now();
+    let iters = 1000000;
 
-  // let (x, y, rot, spin) = (game.piece.x, game.piece.y, game.piece.rot, game.spin);
+    let mut nodes = 0;
 
-  // for _ in 0..iters {
-  // 	game.piece.x = x;
-  // 	game.piece.y = y;
-  // 	game.piece.rot = rot;
-  // 	game.spin = spin;
-  // 	let r = search::expand(&mut game, config, passed, res);
-  // 	nodes += r.1;
-  // }
+    let passed = &mut [0u64; 2048];
+    let res = &mut [(0, 0, 0, Spin::None); 512];
 
-  // let duration = start.elapsed();
-  // println!("NPS: {:?}", nodes as f32 / duration.as_secs_f32());
+    let start = Instant::now();
 
-  // -- SEARCH TEST --
+    let (x, y, rot, spin) = (game.piece.x, game.piece.y, game.piece.rot, game.spin);
 
-  // println!(
-  //   "SEARCHING THROUGH: <{}> {:?}",
-  //   game.piece.mino.str(),
-  //   game.queue
-  // );
+    for _ in 0..iters {
+      game.piece.x = x;
+      game.piece.y = y;
+      game.piece.rot = rot;
+      game.spin = spin;
+      let r = search::expand(&mut game, config, passed, res);
+      nodes += r.1;
+    }
 
-  // let mut avg_time = 0f32;
-  // let iters = 1000000;
-  // game.print();
-  // game.print();
+    let duration = start.elapsed();
+    println!("NPS: {:?}", nodes as f32 / duration.as_secs_f32());
+  }
 
-  // for i in 0..iters + 5 {
-  //   let g = game.clone();
-  //   let start = Instant::now();
-  //   let res = search::search(g, config, 1).unwrap();
-  //   let duration = start.elapsed();
-  //   if i == iters + 5 - 1 {
-  //     let g = res.1.clone();
-  //     g.board.print();
-  //     println!("Stats:");
-  //     println!("B2B: {}", g.b2b);
-  // 		println!("TARGET: {} {} {} {}", res.0.0, res.0.1, res.0.2, res.0.3);
-  // 		let mut g = game.clone();
-  // 		g.piece.x = res.0.0;
-  // 		g.piece.y = res.0.1;
-  // 		g.piece.rot = res.0.2;
+  pub fn test_search() {
+    let (config, mut queue, mut game) = init();
+    let config = &config;
 
-  // 		g.print();
-  //   }
-  //   if i > 5 {
-  //     avg_time += duration.as_secs_f32();
-  //   }
-  // }
-  // avg_time /= iters as f32;
-  // println!("Average search time: {:?}ms", avg_time * 1000.0);
+    println!(
+      "SEARCHING THROUGH: <{}> {:?}",
+      game.piece.mino.str(),
+      game.queue
+    );
 
-  // -- SEARCH BENCH --
+    let mut avg_time = 0f32;
+    let iters = 10_000;
+    game.print();
+    game.print();
 
-  // search::search(game.clone(), config, 6);
+    for i in 0..iters + 5 {
+      let g = game.clone();
+      let start = Instant::now();
+      let res = search::beam_search(g, config, 10).unwrap();
+      let duration = start.elapsed();
+      if i == iters + 5 - 1 {
+        let g = res.1.clone();
+        g.board.print();
+        println!("Stats:");
+        println!("B2B: {}", g.b2b);
+        println!("TARGET: {} {} {} {}", res.0.0, res.0.1, res.0.2, res.0.3);
+        let mut g = game.clone();
+        g.piece.x = res.0.0;
+        g.piece.y = res.0.1;
+        g.piece.rot = res.0.2;
 
-  // -- PLAY TEST --
+        g.print();
+      }
+      if i > 5 {
+        avg_time += duration.as_secs_f32();
+      }
+    }
+    avg_time /= iters as f32;
+    println!("Average search time: {:?}ms", avg_time * 1000.0);
+  }
 
-  // let mut count = 0;
+  pub fn test_play() {
+    let (config, mut queue, mut game) = init();
+    let config = &config;
 
-  // loop {
-  //   count += 1;
-  // 	if count == 500 {
-  // 		break;
-  // 	}
+    let mut count = 0;
 
-  //   println!(
-  //     "SEARCHING THROUGH: <{}> {:?}",
-  //     game.piece.mino.str(),
-  //     game.queue
-  //   );
-  //   let res = search::search(game.clone(), config, 4);
-  //   if res.is_none() {
-  //     println!("NO SOLUTION FOUND");
-  //     break;
-  //   }
+    loop {
+      count += 1;
+      if count == 500 {
+        break;
+      }
 
-  //   let res = res.unwrap();
+      println!(
+        "SEARCHING THROUGH: <{}> {:?}",
+        game.piece.mino.str(),
+        game.queue
+      );
+      let res = search::beam_search(game.clone(), config, 10);
+      if res.is_none() {
+        println!("NO SOLUTION FOUND");
+        break;
+      }
 
-  //   if res.0.3 {
-  //     game.hold();
-  //   }
+      let res = res.unwrap();
 
-  //   game.piece.x = res.0.0;
-  //   game.piece.y = res.0.1;
-  //   game.piece.rot = res.0.2;
-  //   game.spin = res.0.4;
+      if res.0.3 {
+        game.hold();
+      }
 
-  //   println!("PROJECTION ({} b2b):", res.1.b2b);
-  //   res.1.board.print();
-  //   println!(
-  //     "{} {} {} {}",
-  //     game.piece.mino.str(),
-  //     res.0.0,
-  //     res.0.1,
-  //     res.0.2
-  //   );
+      game.piece.x = res.0.0;
+      game.piece.y = res.0.1;
+      game.piece.rot = res.0.2;
+      game.spin = res.0.4;
 
-  //   game.print();
-  //   game.hard_drop(config);
-  //   game.regen_collision_map();
+      println!("PROJECTION ({} b2b):", res.1.b2b);
+      res.1.board.print();
+      println!(
+        "{} {} {} {}",
+        game.piece.mino.str(),
+        res.0.0,
+        res.0.1,
+        res.0.2
+      );
 
-  //   if count % 15 == 0 {
-  //     // clean
-  //     if rand::random_bool(0.5) {
-  //       game.garbage.push_back(Garbage {
-  //         amt: 4,
-  //         col: rand::random::<u8>() % 10,
-  //         time: 0,
-  //       });
-  //     } else {
-  //       // cheese
-  //       for _ in 0..2 {
-  //         game.garbage.push_back(Garbage {
-  //           amt: 1,
-  //           col: rand::random::<u8>() % 10,
-  //           time: 0,
-  //         });
-  //       }
-  //     }
-  //   }
+      game.print();
+      game.hard_drop(config);
+      game.regen_collision_map();
 
-  //   queue.shift();
-  //   game.queue_ptr = 0;
-  //   game.queue = queue.get_front_16();
+      if count % 15 == 0 {
+        // clean
+        if rand::random_bool(0.5) {
+          game.garbage.push_back(Garbage {
+            amt: 4,
+            col: rand::random::<u8>() % 10,
+            time: 0,
+          });
+        } else {
+          // cheese
+          for _ in 0..2 {
+            game.garbage.push_back(Garbage {
+              amt: 1,
+              col: rand::random::<u8>() % 10,
+              time: 0,
+            });
+          }
+        }
+      }
 
-  //   println!("CURRENT ({} b2b):", game.b2b);
-  //   println!("PIECE #: {}", count);
+      queue.shift();
+      game.queue_ptr = 0;
+      game.queue = queue.get_front_16();
 
-  //   if game.topped_out() {
-  //     break;
-  //   }
-  // }
+      println!("CURRENT ({} b2b):", game.b2b);
+      println!("PIECE #: {}", count);
 
-  // println!(
-  //   "Game over, topped out ({} @seed {}):",
-  //   game.topped_out(),
-  //   queue.rng.seed
-  // );
-  // game.print();
+      if game.topped_out() {
+        break;
+      }
+    }
 
-  // let mut g = game.clone();
+    println!(
+      "Game over, topped out ({} @seed {}):",
+      game.topped_out(),
+      queue.rng.seed
+    );
+    game.print();
 
-  // let passed = &mut [0u64; 2048];
-  // let res = &mut [(0, 0, 0, Spin::None); 512];
-  // let r = search::expand(&mut g, config, passed, res);
-  // println!(
-  //   "Total positions found for {}: {}",
-  //   game.piece.mino.str(),
-  //   r.0
-  // );
+    let mut g = game.clone();
 
-  // for j in 0..r.0 {
-  //   let mut tester = game.clone();
-  //   let (x, y, rot, spin) = res[j];
-  //   tester.piece.x = x;
-  //   tester.piece.y = y;
-  //   tester.piece.rot = rot;
-  //   tester.spin = spin;
-  //   println!("{} {} {} {}", x, y, rot, spin.str());
-  //   tester.print();
-  //   tester.hard_drop(config);
-  //   println!("------------------------");
-  // }
+    let passed = &mut [0u64; 2048];
+    let res = &mut [(0, 0, 0, Spin::None); 512];
+    let r = search::expand(&mut g, config, passed, res);
+    println!(
+      "Total positions found for {}: {}",
+      game.piece.mino.str(),
+      r.0
+    );
+
+    for j in 0..r.0 {
+      let mut tester = game.clone();
+      let (x, y, rot, spin) = res[j];
+      tester.piece.x = x;
+      tester.piece.y = y;
+      tester.piece.rot = rot;
+      tester.spin = spin;
+      println!("{} {} {} {}", x, y, rot, spin.str());
+      tester.print();
+      tester.hard_drop(config);
+      println!("------------------------");
+    }
+  }
 }

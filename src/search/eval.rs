@@ -40,7 +40,7 @@ const WEIGHTS_HANDTUNED: Weights = Weights {
 
   sent: 0,
 
-  b2b: 60,
+  b2b: 30,
   combo: 10,
 
   holes: -13,

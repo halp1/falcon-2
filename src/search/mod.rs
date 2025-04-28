@@ -289,3 +289,139 @@ pub fn search(
     None
   }
 }
+
+// beam search 🥶
+
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+
+// Assumes `SearchState`, `Game`, `GameConfig`, `Spin`,
+// `expand(&mut Game, &GameConfig, &mut [u64;2048], &mut [(u8,u8,u8,Spin);512]) -> (usize, _)`,
+// and `eval(&Game, u16, Vec<Spin>) -> i32` are defined elsewhere.
+
+const BEAM_WIDTH: usize = 128;
+
+#[derive(Clone)]
+struct Candidate {
+  state: SearchState,
+  score: i32,
+}
+
+impl PartialEq for Candidate {
+  fn eq(&self, other: &Self) -> bool {
+    self.score == other.score
+  }
+}
+impl Eq for Candidate {}
+impl PartialOrd for Candidate {
+  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    Some(self.cmp(other))
+  }
+}
+impl Ord for Candidate {
+  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    // Min-heap via Reverse: higher scores are “greater”
+    self.score.cmp(&other.score)
+  }
+}
+
+/// Beam-search replacement for BFS-based Tetris search.
+///
+/// Signature matches the original `search` function.
+pub fn beam_search(
+  root_game: Game,
+  config: &GameConfig,
+  max_depth: u8,
+) -> Option<((u8, u8, u8, bool, Spin), Game)> {
+  // Initial SearchState
+  let init_state = SearchState {
+    game: root_game.clone(),
+    depth: 0,
+    lines_sent: 0,
+    clears: Vec::new(),
+    first_move: None,
+  };
+  let init_score = eval(&root_game, 0, Vec::new());
+
+  // Beam as min-heap of size BEAM_WIDTH
+  let mut beam: BinaryHeap<Reverse<Candidate>> = BinaryHeap::with_capacity(BEAM_WIDTH);
+  beam.push(Reverse(Candidate {
+    state: init_state,
+    score: init_score,
+  }));
+
+  // Iterate placements
+  for depth in 0..max_depth {
+    let mut next_beam: BinaryHeap<Reverse<Candidate>> = BinaryHeap::with_capacity(BEAM_WIDTH);
+
+    while let Some(Reverse(cand)) = beam.pop() {
+      // Prepare expand buffers per candidate
+      let mut passed = [0u64; 2048];
+      let mut res_buf = [(0u8, 0u8, 0u8, Spin::None); 512];
+
+      // Expand moves
+      let mut game_copy = cand.state.game.clone();
+      let moves = expand(&mut game_copy, config, &mut passed, &mut res_buf);
+
+      for i in 0..moves.0 {
+        let (x, y, rot, spin) = res_buf[i];
+        let mut g2 = game_copy.clone();
+        g2.piece.x = x;
+        g2.piece.y = y;
+        g2.piece.rot = rot;
+        g2.spin = spin;
+
+        let (lines, clear) = g2.hard_drop(config);
+        g2.regen_collision_map();
+        if g2.topped_out() {
+          continue;
+        }
+
+        // Build next SearchState
+        let mut next_clears = cand.state.clears.clone();
+        if let Some(c) = clear {
+          next_clears.push(c);
+        }
+        let next_sent = cand.state.lines_sent + lines;
+        let next_depth = cand.state.depth + 1;
+        let next_first = cand.state.first_move.or(Some((x, y, rot, false, spin)));
+
+        let next_state = SearchState {
+          game: g2.clone(),
+          depth: next_depth,
+          lines_sent: next_sent,
+          clears: next_clears.clone(),
+          first_move: next_first,
+        };
+
+        let score = eval(&g2, next_sent, next_clears);
+        let candidate = Candidate {
+          state: next_state,
+          score,
+        };
+
+        // Insert into next beam with pruning
+        if next_beam.len() < BEAM_WIDTH {
+          next_beam.push(Reverse(candidate));
+        } else if let Some(Reverse(worst)) = next_beam.peek() {
+          if score > worst.score {
+            next_beam.pop();
+            next_beam.push(Reverse(candidate));
+          }
+        }
+      }
+    }
+
+    if next_beam.is_empty() {
+      break;
+    }
+    beam = next_beam;
+  }
+
+  // Select best final candidate
+  beam
+    .into_iter()
+    .map(|rev| rev.0)
+    .max_by_key(|cand| cand.score)
+    .and_then(|cand| cand.state.first_move.map(|m| (m, cand.state.game)))
+}

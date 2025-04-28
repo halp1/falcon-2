@@ -371,7 +371,7 @@ pub struct Game {
 
 impl Game {
   pub fn new(piece: Mino, queue: [Mino; 16]) -> Self {
-    let tetromino = queue[0].data();
+    let tetromino = piece.data();
     let board = Board::new();
     let piece = Falling {
       x: ((BOARD_WIDTH + tetromino.w as usize) / 2) as u8 - 1,

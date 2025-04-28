@@ -78,7 +78,7 @@ impl Mino {
 }
 
 pub const TETROMINO_I: TetrominoMatrix = TetrominoMatrix {
-  w: 4,
+  w: 4, // otherwise it doesn't spawn right
   rots: [
     [(0, 1), (1, 1), (2, 1), (3, 1)],
     [(1, 3), (1, 2), (1, 1), (1, 0)],
