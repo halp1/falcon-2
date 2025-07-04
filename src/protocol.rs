@@ -5,16 +5,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
   game::{
-    Game, GameConfig, Garbage,
-    data::Move,
-    queue::{Bag, Queue},
+    data::Move, queue::{Bag, Queue}, Game, GameConfig, Garbage
   },
   keyfinder,
-  search::search,
+  search::{beam_search, eval::WEIGHTS_HANDTUNED},
 };
 
 #[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
 pub enum Incoming {
   Start(Start),
@@ -24,7 +22,7 @@ pub enum Incoming {
 
 #[derive(Deserialize)]
 pub struct InsertGarbage {
-	garbage: Vec<Garbage>,
+  garbage: Vec<Garbage>,
 }
 
 #[derive(Deserialize)]
@@ -40,11 +38,17 @@ pub struct Step {
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+pub struct Stats {
+  pub time: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
 pub enum Outgoing {
   Init { version: &'static str },
-  Result { keys: Vec<Move> },
+  Result { keys: Vec<Move>, stats: Stats },
   Crash { reason: &'static str },
 }
 
@@ -77,12 +81,14 @@ pub async fn start_server() {
       Incoming::Start(start) => {
         queue = Queue::new(start.bag, start.seed, 16, Vec::new());
         config = Option::from(start.config);
+        game = Game::new(queue.shift(), queue.get_front_16());
       }
 
       Incoming::InsertGarbage(garbage) => {
         for gb in garbage.garbage {
           game.board.insert_garbage(gb.amt, gb.col);
         }
+				game.regen_collision_map();
       }
 
       Incoming::Step(cfg) => {
@@ -97,7 +103,15 @@ pub async fn start_server() {
         }
         game.garbage = cfg.garbage.into();
 
-        let choice = search(game.clone(), &(config.clone()).unwrap(), 5);
+        // println!(
+        //   "SEARCHING THROUGH: <{}> {:?}",
+        //   game.piece.mino.str(),
+        //   game.queue
+        // );
+
+        let start = std::time::Instant::now();
+        let choice = beam_search(game.clone(), &(config.clone()).unwrap(), 10, &WEIGHTS_HANDTUNED);
+        let elapsed = start.elapsed().as_secs_f64();
 
         if let Some(mv) = choice {
           let mut double_shift = false;
@@ -105,20 +119,9 @@ pub async fn start_server() {
             double_shift = game.hold.is_none();
             game.hold();
           }
-          game.piece.x = mv.0.0;
-          game.piece.y = mv.0.1;
-          game.piece.rot = mv.0.2;
-          game.spin = mv.0.4;
 
-          game.hard_drop(&config.clone().unwrap());
+          game.garbage.clear();
 
-          if double_shift {
-            queue.shift();
-          }
-          queue.shift();
-          game.queue = queue.get_front_16();
-          game.queue_ptr = 0;
-          
           let mut keys = keyfinder::get_keys(
             game.clone(),
             &config.clone().unwrap(),
@@ -129,9 +132,29 @@ pub async fn start_server() {
             keys.insert(0, Move::Hold);
           }
 
+          for key in keys.iter() {
+            key.run(&mut game, &config.clone().unwrap());
+          }
+
+          game.print();
+					println!(
+						"B2B: {}",
+						game.b2b
+					);
+
+          game.hard_drop(&config.clone().unwrap());
+
+          if double_shift {
+            queue.shift();
+          }
+          queue.shift();
+          game.queue = queue.get_front_16();
+          game.queue_ptr = 0;
+
           outgoing
             .send(Outgoing::Result {
               keys: keys,
+              stats: Stats { time: elapsed },
             })
             .await
             .unwrap();
@@ -143,6 +166,7 @@ pub async fn start_server() {
           outgoing
             .send(Outgoing::Result {
               keys: vec![Move::HardDrop],
+              stats: Stats { time: elapsed },
             })
             .await
             .unwrap();

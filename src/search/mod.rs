@@ -8,7 +8,7 @@ use crate::game::{
 };
 
 pub mod eval;
-use eval::eval;
+use eval::{eval, Weights};
 
 const MOVES: [[Move; 6]; 7] = [
   // None
@@ -176,6 +176,7 @@ pub fn search(
   state: Game,
   config: &GameConfig,
   max_depth: u8,
+	weights: &Weights
 ) -> Option<((u8, u8, u8, bool, Spin), Game)> {
   let mut best_result: Option<(Game, i32, (u8, u8, u8, bool, Spin))> = None;
 
@@ -224,7 +225,7 @@ pub fn search(
           game_copy = queue[ptr - 1].game.clone();
           continue;
         }
-        let score = eval(&game_copy, lines_sent + lines, clears.clone());
+        let score = eval(weights, &game_copy, lines_sent + lines, clears.clone());
         if best_result.is_none() || score > best_result.as_ref().unwrap().1 {
           best_result = Some((
             game_copy.clone(),
@@ -299,7 +300,7 @@ use std::collections::BinaryHeap;
 // `expand(&mut Game, &GameConfig, &mut [u64;2048], &mut [(u8,u8,u8,Spin);512]) -> (usize, _)`,
 // and `eval(&Game, u16, Vec<Spin>) -> i32` are defined elsewhere.
 
-const BEAM_WIDTH: usize = 128;
+const BEAM_WIDTH: usize = 100;
 
 #[derive(Clone)]
 struct Candidate {
@@ -332,6 +333,7 @@ pub fn beam_search(
   root_game: Game,
   config: &GameConfig,
   max_depth: u8,
+	weights: &Weights,
 ) -> Option<((u8, u8, u8, bool, Spin), Game)> {
   // Initial SearchState
   let init_state = SearchState {
@@ -341,7 +343,7 @@ pub fn beam_search(
     clears: Vec::new(),
     first_move: None,
   };
-  let init_score = eval(&root_game, 0, Vec::new());
+  let init_score = eval(weights, &root_game, 0, Vec::new());
 
   // Beam as min-heap of size BEAM_WIDTH
   let mut beam: BinaryHeap<Reverse<Candidate>> = BinaryHeap::with_capacity(BEAM_WIDTH);
@@ -350,63 +352,69 @@ pub fn beam_search(
     score: init_score,
   }));
 
+  let mut passed = [0u64; 2048];
+  let mut res_buf = [(0u8, 0u8, 0u8, Spin::None); 512];
+
   // Iterate placements
   for depth in 0..max_depth {
     let mut next_beam: BinaryHeap<Reverse<Candidate>> = BinaryHeap::with_capacity(BEAM_WIDTH);
 
     while let Some(Reverse(cand)) = beam.pop() {
-      // Prepare expand buffers per candidate
-      let mut passed = [0u64; 2048];
-      let mut res_buf = [(0u8, 0u8, 0u8, Spin::None); 512];
+      for n in 0..=1 {
+				let mut game_copy = cand.state.game.clone();
 
-      // Expand moves
-      let mut game_copy = cand.state.game.clone();
-      let moves = expand(&mut game_copy, config, &mut passed, &mut res_buf);
+				if n == 1 {
+					game_copy.hold();
+					game_copy.regen_collision_map();
+				}
+        // Expand moves
+        let moves = expand(&mut game_copy, config, &mut passed, &mut res_buf);
 
-      for i in 0..moves.0 {
-        let (x, y, rot, spin) = res_buf[i];
-        let mut g2 = game_copy.clone();
-        g2.piece.x = x;
-        g2.piece.y = y;
-        g2.piece.rot = rot;
-        g2.spin = spin;
+        for i in 0..moves.0 {
+          let (x, y, rot, spin) = res_buf[i];
+          let mut g2 = game_copy.clone();
+          g2.piece.x = x;
+          g2.piece.y = y;
+          g2.piece.rot = rot;
+          g2.spin = spin;
 
-        let (lines, clear) = g2.hard_drop(config);
-        g2.regen_collision_map();
-        if g2.topped_out() {
-          continue;
-        }
+          let (lines, clear) = g2.hard_drop(config);
+          g2.regen_collision_map();
+          if g2.topped_out() {
+            continue;
+          }
 
-        // Build next SearchState
-        let mut next_clears = cand.state.clears.clone();
-        if let Some(c) = clear {
-          next_clears.push(c);
-        }
-        let next_sent = cand.state.lines_sent + lines;
-        let next_depth = cand.state.depth + 1;
-        let next_first = cand.state.first_move.or(Some((x, y, rot, false, spin)));
+          // Build next SearchState
+          let mut next_clears = cand.state.clears.clone();
+          if let Some(c) = clear {
+            next_clears.push(c);
+          }
+          let next_sent = cand.state.lines_sent + lines;
+          let next_depth = cand.state.depth + 1;
+          let next_first = cand.state.first_move.or(Some((x, y, rot, n == 1, spin)));
 
-        let next_state = SearchState {
-          game: g2.clone(),
-          depth: next_depth,
-          lines_sent: next_sent,
-          clears: next_clears.clone(),
-          first_move: next_first,
-        };
+          let next_state = SearchState {
+            game: g2.clone(),
+            depth: next_depth,
+            lines_sent: next_sent,
+            clears: next_clears.clone(),
+            first_move: next_first,
+          };
 
-        let score = eval(&g2, next_sent, next_clears);
-        let candidate = Candidate {
-          state: next_state,
-          score,
-        };
+          let score = eval(weights, &g2, next_sent, next_clears);
+          let candidate = Candidate {
+            state: next_state,
+            score,
+          };
 
-        // Insert into next beam with pruning
-        if next_beam.len() < BEAM_WIDTH {
-          next_beam.push(Reverse(candidate));
-        } else if let Some(Reverse(worst)) = next_beam.peek() {
-          if score > worst.score {
-            next_beam.pop();
+          // Insert into next beam with pruning
+          if next_beam.len() < BEAM_WIDTH {
             next_beam.push(Reverse(candidate));
+          } else if let Some(Reverse(worst)) = next_beam.peek() {
+            if score > worst.score {
+              next_beam.pop();
+              next_beam.push(Reverse(candidate));
+            }
           }
         }
       }

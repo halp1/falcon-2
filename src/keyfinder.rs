@@ -180,7 +180,6 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
                 .any(|tgt| block.0 == tgt.0 && block.1 == tgt.1)
             })
         {
-          println!("{}", mv.str());
           return Vec::from(&moves.0[0..moves.1])
             .into_iter()
             .chain(vec![mv])
@@ -221,5 +220,12 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
     }
   }
 
-  panic!("No move found");
+  state.print();
+  state.piece.x = target.0;
+  state.piece.y = target.1;
+  state.piece.rot = target.2;
+  state.spin = target.3;
+  state.print();
+
+  panic!("No move found (tgt spin: {})", target.3.str());
 }

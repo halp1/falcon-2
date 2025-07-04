@@ -4,10 +4,9 @@ use serde::Deserialize;
 
 use super::{data::Mino, rng::RNG};
 
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[serde(tag = "type")]
+#[derive(Deserialize, Clone, Copy, Debug)]
 pub enum Bag {
+	#[serde(rename = "7-bag")]
   Bag7,
 }
 
@@ -27,6 +26,7 @@ impl Bag {
   }
 }
 
+#[derive(Clone)]
 pub struct Queue {
   pub bag: Bag,
   pub rng: RNG,

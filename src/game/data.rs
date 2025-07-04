@@ -260,28 +260,39 @@ impl Spin {
   }
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[serde(tag = "type")]
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum Spins {
   None,
+  #[serde(rename = "T-spins")]
   T,
+  #[serde(rename = "T-spins+")]
   TPlus,
+  #[serde(rename = "all-mini")]
   Mini,
+  #[serde(rename = "all-mini+")]
   MiniPlus,
+  #[serde(rename = "all")]
   All,
+  #[serde(rename = "all+")]
   AllPlus,
+  #[serde(rename = "mini-only")]
+  MiniOnly,
+  #[serde(rename = "handheld")]
+  Handheld,
+  #[serde(rename = "stupid")]
+  Stupid,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[serde(tag = "type")]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ComboTable {
+	#[serde(rename = "none")]
   None,
+	#[serde(rename = "classic-guideline")]
   Classic,
+	#[serde(rename = "modern-guideline")]
   Modern,
+	#[serde(rename = "multiplier")]
   Multiplier,
 }
 
@@ -304,17 +315,28 @@ impl ComboTable {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[repr(u8)]
 pub enum Move {
+	#[serde(rename = "none")]
   None,
+	#[serde(rename = "moveLeft")]
   Left,
+	#[serde(rename = "moveRight")]
   Right,
+	#[serde(rename = "softDrop")]
   SoftDrop,
+	#[serde(rename = "rotateCCW")]
   CCW,
+	#[serde(rename = "rotateCW")]
   CW,
+	#[serde(rename = "rotate180")]
   Flip,
+	#[serde(rename = "dasLeft")]
   DasLeft,
+	#[serde(rename = "dasRight")]
   DasRight,
-	Hold,
-	HardDrop,
+	#[serde(rename = "hold")]
+  Hold,
+	#[serde(rename = "hardDrop")]
+  HardDrop,
 }
 
 impl Move {
@@ -330,11 +352,11 @@ impl Move {
       Move::None => panic!("None move called...cf"),
       Move::DasLeft => game.das_left(),
       Move::DasRight => game.das_right(),
-			Move::Hold => game.hold(),
-			Move::HardDrop => {
-				game.soft_drop();
-				true
-			}
+      Move::Hold => game.hold(),
+      Move::HardDrop => {
+        game.soft_drop();
+        true
+      }
     }
   }
 
@@ -349,12 +371,12 @@ impl Move {
       Move::Flip => "180",
       Move::DasLeft => "das left",
       Move::DasRight => "das right",
-			Move::Hold => "hold",
-			Move::HardDrop => "hard drop",
+      Move::Hold => "hold",
+      Move::HardDrop => "hard drop",
     }
   }
 
-	pub fn triangle_key(&self) -> &str {
+  pub fn triangle_key(&self) -> &str {
     match self {
       Move::None => panic!("This move doesn't exist"),
       Move::Left => "moveLeft",
@@ -365,8 +387,8 @@ impl Move {
       Move::Flip => "rotate180",
       Move::DasLeft => "dasLeft",
       Move::DasRight => "dasRight",
-			Move::Hold => "hold",
-			Move::HardDrop => "hardDrop",
+      Move::Hold => "hold",
+      Move::HardDrop => "hardDrop",
     }
   }
 }

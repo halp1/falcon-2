@@ -1,9 +1,9 @@
 mod game;
 pub mod keyfinder;
+pub mod trainer;
 
 use game::{
-  Garbage,
-  data::{Mino, Spin, Spins},
+  data::{Spin, Spins},
   queue::{Bag, Queue},
 };
 use keyfinder::get_keys;
@@ -16,32 +16,30 @@ mod search;
 mod protocol;
 
 fn main() {
-  futures::executor::block_on(protocol::start_server());
+  // futures::executor::block_on(protocol::start_server());
 
-  // tests::test_expansion();
+  tests::train();
 }
 
 pub mod tests {
   use super::*;
-  use crate::game::GameConfig;
-  use crate::game::{Game, queue};
-  use crate::search::eval::eval;
-  use crate::search::search;
+  use crate::{game::Game, search::eval::WEIGHTS_HANDTUNED};
 
   pub fn init() -> (game::GameConfig, Queue, Game) {
     let config = game::GameConfig {
       spins: Spins::MiniPlus,
-      b2b_chaining: true,
-      b2b_charging: false,
+      b2b_chaining: false,
+      b2b_charging: true,
       b2b_charge_at: 0,
       b2b_charge_base: 0,
-      pc_b2b: 0,
+      pc_b2b: 1,
+      pc_send: 5,
       combo_table: game::data::ComboTable::Multiplier,
       garbage_multiplier: 1.0,
-      garbage_special_bonus: false,
+      garbage_special_bonus: true,
     };
 
-    let mut queue = Queue::new(Bag::Bag7, 1230524794, 16, Vec::from([]));
+    let mut queue = Queue::new(Bag::Bag7, rand::random::<u64>(), 16, Vec::from([]));
 
     let game = game::Game::new(queue.shift(), queue.get_front_16());
 
@@ -49,7 +47,7 @@ pub mod tests {
   }
 
   pub fn test_expansion() {
-    let (config, mut queue, mut game) = init();
+    let (config, _, game) = init();
     let config = &config;
 
     let mut avg_time = 0f32;
@@ -102,7 +100,7 @@ pub mod tests {
   }
 
   pub fn bench_expansion() {
-    let (config, mut queue, mut game) = init();
+    let (config, _, mut game) = init();
     let config = &config;
 
     let iters = 1000000;
@@ -130,7 +128,7 @@ pub mod tests {
   }
 
   pub fn test_search() {
-    let (config, mut queue, mut game) = init();
+    let (config, _, game) = init();
     let config = &config;
 
     println!(
@@ -147,7 +145,7 @@ pub mod tests {
     for i in 0..iters + 5 {
       let g = game.clone();
       let start = Instant::now();
-      let res = search::beam_search(g, config, 10).unwrap();
+      let res = search::beam_search(g, config, 10, &WEIGHTS_HANDTUNED).unwrap();
       let duration = start.elapsed();
       if i == iters + 5 - 1 {
         let g = res.1.clone();
@@ -175,19 +173,19 @@ pub mod tests {
     let config = &config;
 
     let mut count = 0;
+    let mut attack = 0;
 
     loop {
       count += 1;
-      if count == 500 {
-        break;
-      }
 
       println!(
         "SEARCHING THROUGH: <{}> {:?}",
         game.piece.mino.str(),
         game.queue
       );
-      let res = search::beam_search(game.clone(), config, 10);
+      let start = Instant::now();
+      let res = search::beam_search(game.clone(), config, 10, &WEIGHTS_HANDTUNED);
+      let elapsed = start.elapsed();
       if res.is_none() {
         println!("NO SOLUTION FOUND");
         break;
@@ -197,12 +195,16 @@ pub mod tests {
 
       if res.0.3 {
         game.hold();
+        game.regen_collision_map();
+        queue.shift();
       }
 
-      game.piece.x = res.0.0;
-      game.piece.y = res.0.1;
-      game.piece.rot = res.0.2;
-      game.spin = res.0.4;
+      let (x, y, rot, spin) = (res.0.0, res.0.1, res.0.2, res.0.4);
+
+      let keys = get_keys(game.clone(), config, (x, y, rot, spin));
+      for key in keys.iter() {
+        key.run(&mut game, config);
+      }
 
       println!("PROJECTION ({} b2b):", res.1.b2b);
       res.1.board.print();
@@ -215,35 +217,39 @@ pub mod tests {
       );
 
       game.print();
-      game.hard_drop(config);
+      println!("KEYS: {:?}", keys);
+
+      attack += game.hard_drop(config).0;
       game.regen_collision_map();
 
-      if count % 15 == 0 {
-        // clean
-        if rand::random_bool(0.5) {
-          game.garbage.push_back(Garbage {
-            amt: 4,
-            col: rand::random::<u8>() % 10,
-            time: 0,
-          });
-        } else {
-          // cheese
-          for _ in 0..2 {
-            game.garbage.push_back(Garbage {
-              amt: 1,
-              col: rand::random::<u8>() % 10,
-              time: 0,
-            });
-          }
-        }
-      }
+      // if count % 15 == 0 {
+      //   // clean
+      //   if rand::random_bool(1.0) {
+      //     game.garbage.push_back(Garbage {
+      //       amt: 4,
+      //       col: rand::random::<u8>() % 10,
+      //       time: 0,
+      //     });
+      //   } else {
+      //     // cheese
+      //     for _ in 0..2 {
+      //       game.garbage.push_back(Garbage {
+      //         amt: 1,
+      //         col: rand::random::<u8>() % 10,
+      //         time: 0,
+      //       });
+      //     }
+      //   }
+      // }
 
       queue.shift();
       game.queue_ptr = 0;
       game.queue = queue.get_front_16();
 
-      println!("CURRENT ({} b2b):", game.b2b);
+      println!("B2B: {}", game.b2b);
       println!("PIECE #: {}", count);
+      println!("TIME: {}ms", elapsed.as_secs_f32() * 1000.0);
+      println!("APP: {:.2}", attack as f32 / count as f32);
 
       if game.topped_out() {
         break;
@@ -256,29 +262,16 @@ pub mod tests {
       queue.rng.seed
     );
     game.print();
+  }
 
-    let mut g = game.clone();
+  pub fn train() {
+    let (config, _, _) = init();
 
-    let passed = &mut [0u64; 2048];
-    let res = &mut [(0, 0, 0, Spin::None); 512];
-    let r = search::expand(&mut g, config, passed, res);
+    let res = trainer::train(&config, WEIGHTS_HANDTUNED, 10, 10);
+
     println!(
-      "Total positions found for {}: {}",
-      game.piece.mino.str(),
-      r.0
+      "Trained weights: {}",
+      serde_json::to_string_pretty(&res).unwrap()
     );
-
-    for j in 0..r.0 {
-      let mut tester = game.clone();
-      let (x, y, rot, spin) = res[j];
-      tester.piece.x = x;
-      tester.piece.y = y;
-      tester.piece.rot = rot;
-      tester.spin = spin;
-      println!("{} {} {} {}", x, y, rot, spin.str());
-      tester.print();
-      tester.hard_drop(config);
-      println!("------------------------");
-    }
   }
 }

@@ -120,7 +120,7 @@ impl Board {
     self.cols[x] |= 1 << y;
   }
 
-  fn is_occupied(&self, x: i8, y: i8) -> bool {
+  pub fn is_occupied(&self, x: i8, y: i8) -> bool {
     if x < 0 || x >= BOARD_WIDTH as i8 || y < 0 || y >= BOARD_HEIGHT as i8 {
       return true;
     }
@@ -255,14 +255,13 @@ impl Board {
     max_h
   }
 
-	pub fn upper_half_height(&self) -> i32 {
-		return (self.max_height() - BOARD_UPPER_HALF as i32).max(0);
-	}
+  pub fn upper_half_height(&self) -> i32 {
+    return (self.max_height() - BOARD_UPPER_HALF as i32).max(0);
+  }
 
-	pub fn upper_quarter_height(&self) -> i32 {
-		return (self.max_height() - BOARD_UPPER_QUARTER as i32).max(0);
-	}
-		
+  pub fn upper_quarter_height(&self) -> i32 {
+    return (self.max_height() - BOARD_UPPER_QUARTER as i32).max(0);
+  }
 
   pub fn center_height(&self) -> i32 {
     let mut max_h: i32 = 0;
@@ -316,6 +315,50 @@ impl Board {
       })
       .sum::<u32>() as i32
   }
+
+  pub fn overstacked_holes(&self) -> i32 {
+    self
+      .cols
+      .iter()
+      .map(|&col| {
+        let mask = !col & (col >> 1);
+
+        if mask == 0 {
+          return 0;
+        }
+
+        ((63 - col.leading_zeros()) - mask.trailing_zeros() - 1).max(0)
+      })
+      .sum::<u32>() as i32
+  }
+
+  pub fn wells(&self) -> i32 {
+    let heights = self
+      .cols
+      .iter()
+      .map(|&col| 64 - col.leading_zeros())
+      .collect::<Vec<u32>>();
+
+    (heights
+      .iter()
+      .enumerate()
+      .map(|(index, &height)| {
+        if ((if index == 0 { 63 } else { heights[index - 1] }).min(if index == BOARD_WIDTH - 1 {
+          63
+        } else {
+          heights[index + 1]
+        }) - height)
+          >= 3
+        {
+          1
+        } else {
+          0
+        }
+      })
+      .sum::<u32>() as i32
+      - 1)
+      .max(0)
+  }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -333,6 +376,7 @@ impl Falling {
 }
 
 #[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct GameConfig {
   pub spins: Spins,
   pub b2b_charging: bool,
@@ -342,12 +386,12 @@ pub struct GameConfig {
   pub combo_table: ComboTable,
   pub garbage_multiplier: f32,
   pub pc_b2b: u16,
+  pub pc_send: u16,
   pub garbage_special_bonus: bool,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[serde(tag = "type")]
+#[serde(rename_all = "camelCase")]
 #[derive(Clone, Debug)]
 pub struct Garbage {
   pub col: u8,
@@ -522,9 +566,11 @@ impl Game {
     let corners = [
       self.board.is_occupied(x - 2, y),
       self.board.is_occupied(x, y),
-      self.board.is_occupied(x, -2),
+      self.board.is_occupied(x, y - 2),
       self.board.is_occupied(x - 2, y - 2),
     ];
+
+    // println!("CORNER: {} {} {} {} {}", corners[0], corners[1], corners[2], corners[3], self.piece.mino.str());
 
     let mut corner_count = 0;
     for corner in corners {
@@ -715,6 +761,10 @@ impl Game {
     ) * config.garbage_multiplier
       + garbage_special_bonus) as u16;
 
+    if pc {
+      sent += config.pc_send;
+    }
+
     if let Some(b2b) = broke_b2b {
       if config.b2b_charging && b2b + 1 > config.b2b_charge_at {
         sent += ((b2b - config.b2b_charge_at + config.b2b_charge_base + 1) as f32
@@ -750,11 +800,13 @@ impl Game {
       }
     }
 
-		let clear_type = if cleared > 0 {
-			Option::Some(self.spin)
-		} else {
-			None
-		};
+    let clear_type = if cleared >= 4 {
+      Option::Some(Spin::Normal)
+    } else if cleared > 0 {
+      Option::Some(self.spin)
+    } else {
+      None
+    };
 
     self.spin = Spin::None;
 

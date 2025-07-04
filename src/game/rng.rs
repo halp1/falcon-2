@@ -2,6 +2,7 @@ const MODULUS: u64 = 2147483647;
 const MULTIPLIER: u64 = 16807;
 const MAX_FLOAT: u64 = 2147483646;
 
+#[derive(Clone, Copy)]
 pub struct RNG {
   pub seed: u64,
   pub index: usize,
