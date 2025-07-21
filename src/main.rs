@@ -18,12 +18,12 @@ mod protocol;
 fn main() {
   // futures::executor::block_on(protocol::start_server());
 
-  tests::train();
+  tests::test_game();
 }
 
 pub mod tests {
   use super::*;
-  use crate::{game::Game, search::eval::WEIGHTS_HANDTUNED};
+  use crate::{game::{data::Mino, Game}, search::eval::WEIGHTS_HANDTUNED};
 
   pub fn init() -> (game::GameConfig, Queue, Game) {
     let config = game::GameConfig {
@@ -45,6 +45,19 @@ pub mod tests {
 
     (config, queue, game)
   }
+
+	pub fn test_game() {
+		let (config, _, _) = init();
+
+		let mut queue = Queue::new(Bag::Bag7, 0, 16, Vec::from([Mino::I]));
+
+    let mut game = game::Game::new(queue.shift(), queue.get_front_16());
+
+		game.hard_drop(&config);
+		game.regen_collision_map();
+
+		game.print();
+	}
 
   pub fn test_expansion() {
     let (config, _, game) = init();

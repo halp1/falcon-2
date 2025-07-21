@@ -9,8 +9,8 @@ mod garbage;
 pub mod queue;
 pub mod rng;
 
-pub const BOARD_WIDTH: usize = 10;
-pub const BOARD_HEIGHT: usize = 40;
+pub const BOARD_WIDTH: usize = 4;
+pub const BOARD_HEIGHT: usize = 46;
 pub const BOARD_BUFFER: usize = 20;
 
 pub const BOARD_UPPER_HALF: usize = BOARD_HEIGHT / 2;
@@ -356,7 +356,7 @@ impl Board {
         }
       })
       .sum::<u32>() as i32
-      - 1)
+      - 1)	
       .max(0)
   }
 }
@@ -699,6 +699,7 @@ impl Game {
   }
 
   pub fn hard_drop(&mut self, config: &GameConfig) -> (u16, Option<Spin>) {
+		println!("HARD DROP {} {} {} {}", self.piece.mino.str(), self.piece.x, self.piece.y, self.piece.rot);
     self.soft_drop();
 
     let blocks = self.piece.blocks();

@@ -1,5 +1,3 @@
-use std::path;
-
 use crate::game::{
   Game, GameConfig,
   data::{Move, Spin},
@@ -221,6 +219,7 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
   }
 
   state.print();
+	println!("Target:");
   state.piece.x = target.0;
   state.piece.y = target.1;
   state.piece.rot = target.2;
