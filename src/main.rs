@@ -16,14 +16,18 @@ mod search;
 mod protocol;
 
 fn main() {
-  // futures::executor::block_on(protocol::start_server());
+  futures::executor::block_on(protocol::start_server());
 
-  tests::test_game();
+  // tests::test_play();
+  // tests::test_game();
 }
 
 pub mod tests {
   use super::*;
-  use crate::{game::{data::Mino, Game}, search::eval::WEIGHTS_HANDTUNED};
+  use crate::{
+    game::{Game, data::Mino, print_board},
+    search::eval::{WEIGHTS_4W, WEIGHTS_HANDTUNED},
+  };
 
   pub fn init() -> (game::GameConfig, Queue, Game) {
     let config = game::GameConfig {
@@ -39,25 +43,28 @@ pub mod tests {
       garbage_special_bonus: true,
     };
 
-    let mut queue = Queue::new(Bag::Bag7, rand::random::<u64>(), 16, Vec::from([]));
+    // let mut queue = Queue::new(Bag::Bag7, rand::random::<u64>(), 16, Vec::from([]));
+    let mut queue = Queue::new(Bag::Bag7, 2, 16, Vec::from([]));
 
     let game = game::Game::new(queue.shift(), queue.get_front_16());
 
     (config, queue, game)
   }
 
-	pub fn test_game() {
-		let (config, _, _) = init();
+  pub fn test_game() {
+    let (config, _, _) = init();
 
-		let mut queue = Queue::new(Bag::Bag7, 0, 16, Vec::from([Mino::I]));
+    let mut queue = Queue::new(Bag::Bag7, 0, 16, Vec::from([Mino::I]));
 
     let mut game = game::Game::new(queue.shift(), queue.get_front_16());
 
-		game.hard_drop(&config);
-		game.regen_collision_map();
+    game.rotate(1, &config);
+    game.move_right();
+    game.soft_drop();
+    game.rotate(3, &config);
 
-		game.print();
-	}
+    game.print();
+  }
 
   pub fn test_expansion() {
     let (config, _, game) = init();
@@ -188,6 +195,16 @@ pub mod tests {
     let mut count = 0;
     let mut attack = 0;
 
+		
+    game.board.set(0, 0);
+    game.board.set(1, 0);
+    game.board.set(2, 0);
+    game.board.set(0, 1);
+    game.board.set(1, 1);
+    game.board.set(2, 1);
+		
+		let mut max_combo = -1;
+
     loop {
       count += 1;
 
@@ -197,7 +214,7 @@ pub mod tests {
         game.queue
       );
       let start = Instant::now();
-      let res = search::beam_search(game.clone(), config, 10, &WEIGHTS_HANDTUNED);
+      let res = search::beam_search(game.clone(), config, 10, &WEIGHTS_4W);
       let elapsed = start.elapsed();
       if res.is_none() {
         println!("NO SOLUTION FOUND");
@@ -260,9 +277,13 @@ pub mod tests {
       game.queue = queue.get_front_16();
 
       println!("B2B: {}", game.b2b);
+      println!("COMBO: {}", game.combo);
       println!("PIECE #: {}", count);
       println!("TIME: {}ms", elapsed.as_secs_f32() * 1000.0);
       println!("APP: {:.2}", attack as f32 / count as f32);
+
+			max_combo = std::cmp::max(max_combo, game.combo);
+			println!("MAX COMBO: {}", max_combo);
 
       if game.topped_out() {
         break;

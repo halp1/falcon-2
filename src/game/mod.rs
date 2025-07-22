@@ -347,7 +347,7 @@ impl Board {
           63
         } else {
           heights[index + 1]
-        }) - height)
+        }).saturating_sub(height))
           >= 3
         {
           1
@@ -665,6 +665,9 @@ impl Game {
     if let Some(hold) = self.hold {
       self.hold = Some(self.piece.mino);
       self.piece.mino = hold;
+			let tetromino = self.piece.mino.data();
+			self.piece.x = ((BOARD_WIDTH + tetromino.w as usize) / 2) as u8 - 1;
+      self.piece.y =  (BOARD_HEIGHT - BOARD_BUFFER) as u8 + 2;
     } else {
       assert!(self.queue_ptr < self.queue.len(), "Queue is empty");
       self.hold = Some(self.piece.mino);
@@ -699,7 +702,7 @@ impl Game {
   }
 
   pub fn hard_drop(&mut self, config: &GameConfig) -> (u16, Option<Spin>) {
-		println!("HARD DROP {} {} {} {}", self.piece.mino.str(), self.piece.x, self.piece.y, self.piece.rot);
+		// println!("HARD DROP {} {} {} {}", self.piece.mino.str(), self.piece.x, self.piece.y, self.piece.rot);
     self.soft_drop();
 
     let blocks = self.piece.blocks();
@@ -708,9 +711,18 @@ impl Game {
     let mut min_y = blocks[0].1;
 
     for &(x, y) in blocks {
+			if !(self.piece.x >= x) {
+				println!("{} {} {} {}", self.piece.x, self.piece.y, self.piece.rot, self.piece.mino.block_str());
+				for &(x, y) in blocks {
+					println!("{} {}", x, y);
+				}
+			}
+			assert!(self.piece.x >= x, "x fail: {} {} {}", self.piece.x, x, self.piece.mino.block_str());
+			assert!(self.piece.y >= y, "y fail: {} {} {}", self.piece.y, y, self.piece.mino.block_str());
       self
         .board
         .set((self.piece.x - x) as usize, (self.piece.y - y) as usize);
+
       if y > max_y {
         max_y = y;
       }

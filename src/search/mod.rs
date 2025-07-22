@@ -8,7 +8,7 @@ use crate::game::{
 };
 
 pub mod eval;
-use eval::{eval, Weights};
+use eval::{Weights, eval};
 
 const MOVES: [[Move; 6]; 7] = [
   // None
@@ -140,6 +140,7 @@ pub fn expand(
       if mv == Move::SoftDrop && passed[1024 + idx] & bit == 0 {
         passed[1024 + idx] |= bit;
         res[res_ptr] = (state.piece.x, state.piece.y, state.piece.rot, state.spin);
+
         res_ptr += 1;
       }
 
@@ -176,7 +177,7 @@ pub fn search(
   state: Game,
   config: &GameConfig,
   max_depth: u8,
-	weights: &Weights
+  weights: &Weights,
 ) -> Option<((u8, u8, u8, bool, Spin), Game)> {
   let mut best_result: Option<(Game, i32, (u8, u8, u8, bool, Spin))> = None;
 
@@ -333,7 +334,7 @@ pub fn beam_search(
   root_game: Game,
   config: &GameConfig,
   max_depth: u8,
-	weights: &Weights,
+  weights: &Weights,
 ) -> Option<((u8, u8, u8, bool, Spin), Game)> {
   // Initial SearchState
   let init_state = SearchState {
@@ -361,12 +362,12 @@ pub fn beam_search(
 
     while let Some(Reverse(cand)) = beam.pop() {
       for n in 0..=1 {
-				let mut game_copy = cand.state.game.clone();
+        let mut game_copy = cand.state.game.clone();
 
-				if n == 1 {
-					game_copy.hold();
-					game_copy.regen_collision_map();
-				}
+        if n == 1 {
+          game_copy.hold();
+          game_copy.regen_collision_map();
+        }
         // Expand moves
         let moves = expand(&mut game_copy, config, &mut passed, &mut res_buf);
 

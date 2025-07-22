@@ -24,7 +24,7 @@ export const CENTER_4 = {
 export const FULL_WIDTH = { start: 0, end: BOARD_WIDTH };
 
 export function printBoard(
-  board: bigint[],
+  board: number[],
   garbageHeight: number,
   highlight: [Mino, [number, number][]]
 ): void {
@@ -32,7 +32,7 @@ export function printBoard(
   for (let y = BOARD_HEIGHT - 1; y >= 0; y--) {
     let emptyRow = true;
     for (const col of board) {
-      if ((col & (1n << BigInt(y))) !== 0n) {
+      if ((col & (1 << y)) !== 0) {
         emptyRow = false;
         break;
       }
@@ -48,7 +48,7 @@ export function printBoard(
   for (let y = startRow; y >= 0; y--) {
     let line = `${(y + 1).toString().padStart(2)}|`;
     for (let x = 0; x < board.length; x++) {
-      if ((board[x] & (1n << BigInt(y))) !== 0n) {
+      if ((board[x] & (1 << y)) !== 0) {
         if (highlight[1].some((v) => v[0] === x && v[1] === y)) {
           line += MinoData.getBlockStr(highlight[0]);
         } else if (y < garbageHeight) {
@@ -68,27 +68,21 @@ export function printBoard(
 }
 
 export class CollisionMap {
-  public states: bigint[][];
+  public states: number[][];
 
-  constructor(board: bigint[], piece: Falling) {
+  constructor(board: number[], piece: Falling) {
     this.states = Array(4)
       .fill(null)
-      .map(() => Array(BOARD_WIDTH + 2).fill(0n));
+      .map(() => Array(BOARD_WIDTH + 2).fill(0));
 
     for (let rot = 0; rot < 4; rot++) {
       const blocks = MinoData.getRot(piece.mino, rot);
       for (let x = 0; x < BOARD_WIDTH + 2; x++) {
-        let collision = 0n;
+        let collision = 0;
         for (const [bx, by] of blocks) {
           const px = x - bx;
-          const py = by;
-
-          if (px < 0 || px >= BOARD_WIDTH || py >= BOARD_HEIGHT) {
-            collision = (1n << BigInt(BOARD_HEIGHT)) - 1n;
-            break;
-          }
-
-          collision |= board[px] << BigInt(py);
+          const col = px >= 0 && px < BOARD_WIDTH ? board[px] : ~0;
+          collision |= ~(~col << by);
         }
         this.states[rot][x] = collision;
       }
@@ -99,16 +93,17 @@ export class CollisionMap {
     if (x >= BOARD_WIDTH + 2 || y >= BOARD_HEIGHT) {
       return true;
     }
-    return ((this.states[rot][x] >> BigInt(y)) & 1n) !== 0n;
+    // Check if the bit at position y is set
+    return (this.states[rot][x] & (1 << y)) !== 0;
   }
 }
 
 export class Board {
-  public cols: bigint[];
+  public cols: number[];
   public garbage: number;
 
   constructor() {
-    this.cols = Array(BOARD_WIDTH).fill(0n);
+    this.cols = Array(BOARD_WIDTH).fill(0);
     this.garbage = 0;
   }
 
@@ -117,14 +112,14 @@ export class Board {
       x < BOARD_WIDTH && y < BOARD_HEIGHT,
       `Invalid coordinates: ${x}, ${y}`
     );
-    this.cols[x] |= 1n << BigInt(y);
+    this.cols[x] |= 1 << y;
   }
 
   isOccupied(x: number, y: number): boolean {
     if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) {
       return true;
     }
-    return (this.cols[x] & (1n << BigInt(y))) !== 0n;
+    return (this.cols[x] & (1 << y)) !== 0;
   }
 
   clear(from: number, to: number): [number, boolean] {
@@ -134,7 +129,7 @@ export class Board {
     for (let y = to; y >= from; y--) {
       let fullRow = true;
       for (let x = 0; x < BOARD_WIDTH; x++) {
-        if ((this.cols[x] & (1n << BigInt(y))) === 0n) {
+        if ((this.cols[x] & (1 << y)) === 0) {
           fullRow = false;
           break;
         }
@@ -149,10 +144,10 @@ export class Board {
         }
 
         for (let clearX = 0; clearX < BOARD_WIDTH; clearX++) {
-          const lowMask = (1n << BigInt(y)) - 1n;
+          const lowMask = (1 << y) - 1;
           const low = this.cols[clearX] & lowMask;
-          const high = this.cols[clearX] >> BigInt(y + 1);
-          this.cols[clearX] = (high << BigInt(y)) | low;
+          const high = this.cols[clearX] >> (y + 1);
+          this.cols[clearX] = (high << y) | low;
         }
       }
     }
@@ -162,7 +157,7 @@ export class Board {
 
   isPc(): boolean {
     for (const col of this.cols) {
-      if ((col & (1n << BigInt(BOARD_HEIGHT - 1))) !== 0n) {
+      if ((col & (1 << (BOARD_HEIGHT - 1))) !== 0) {
         return true;
       }
     }
@@ -178,11 +173,11 @@ export class Board {
 
     this.garbage = Math.min(this.garbage + amount, BOARD_HEIGHT);
 
-    const allMask = (1n << BigInt(BOARD_HEIGHT)) - 1n;
-    const bottomMask = (1n << BigInt(amount)) - 1n;
+    const allMask = (1 << BOARD_HEIGHT) - 1;
+    const bottomMask = (1 << amount) - 1;
 
     for (let x = 0; x < BOARD_WIDTH; x++) {
-      const shifted = (this.cols[x] << BigInt(amount)) & allMask;
+      const shifted = (this.cols[x] << amount) & allMask;
       this.cols[x] = x === column ? shifted : shifted | bottomMask;
     }
   }
@@ -228,7 +223,7 @@ export class Board {
 
   countHoles(): number {
     return this.cols.reduce((sum, col) => {
-      const holeMap = ~col & ((1n << BigInt(64 - this.leadingZeros(col))) - 1n);
+      const holeMap = ~col & ((1 << (64 - this.leadingZeros(col))) - 1);
       return sum + this.popcount(holeMap);
     }, 0);
   }
@@ -248,10 +243,10 @@ export class Board {
 
   coveredHoles(): number {
     return this.cols.reduce((sum, col, x) => {
-      const holeMap = ~col & ((1n << BigInt(64 - this.leadingZeros(col))) - 1n);
+      const holeMap = ~col & ((1 << (64 - this.leadingZeros(col))) - 1);
 
-      const leftCol = x === 0 ? ~0n : this.cols[x - 1];
-      const rightCol = x === BOARD_WIDTH - 1 ? ~0n : this.cols[x + 1];
+      const leftCol = x === 0 ? ~0 : this.cols[x - 1];
+      const rightCol = x === BOARD_WIDTH - 1 ? ~0 : this.cols[x + 1];
 
       return sum + this.popcount(holeMap & leftCol & rightCol);
     }, 0);
@@ -259,9 +254,9 @@ export class Board {
 
   overstackedHoles(): number {
     return this.cols.reduce((sum, col) => {
-      const mask = ~col & (col >> 1n);
+      const mask = ~col & (col >> 1);
 
-      if (mask === 0n) {
+      if (mask === 0) {
         return sum;
       }
 
@@ -275,8 +270,8 @@ export class Board {
     let wells = 0;
 
     for (let x = 0; x < BOARD_WIDTH; x++) {
-      const leftHigher = x === 0 ? ~0n : this.cols[x - 1];
-      const rightHigher = x === BOARD_WIDTH - 1 ? ~0n : this.cols[x + 1];
+      const leftHigher = x === 0 ? ~0 : this.cols[x - 1];
+      const rightHigher = x === BOARD_WIDTH - 1 ? ~0 : this.cols[x + 1];
       const wellMask = leftHigher & rightHigher & ~this.cols[x];
 
       wells += this.popcount(wellMask);
@@ -285,31 +280,31 @@ export class Board {
     return wells;
   }
 
-  private leadingZeros(n: bigint): number {
-    if (n === 0n) return 64;
+  private leadingZeros(n: number): number {
+    if (n === 0) return 64;
     let count = 0;
     for (let i = 63; i >= 0; i--) {
-      if ((n & (1n << BigInt(i))) !== 0n) break;
+      if ((n & (1 << i)) !== 0) break;
       count++;
     }
     return count;
   }
 
-  private trailingZeros(n: bigint): number {
-    if (n === 0n) return 64;
+  private trailingZeros(n: number): number {
+    if (n === 0) return 64;
     let count = 0;
     for (let i = 0; i < 64; i++) {
-      if ((n & (1n << BigInt(i))) !== 0n) break;
+      if ((n & (1 << i)) !== 0) break;
       count++;
     }
     return count;
   }
 
-  private popcount(n: bigint): number {
+  private popcount(n: number): number {
     let count = 0;
-    while (n !== 0n) {
+    while (n !== 0) {
       count += 1;
-      n &= n - 1n;
+      n &= n - 1;
     }
     return count;
   }
@@ -549,6 +544,7 @@ export class Game {
     }
 
     this.piece.y = pieceY;
+
     return moved;
   }
 
@@ -682,7 +678,7 @@ export class Game {
     const clearType = cleared >= 4 ? Spin.Normal : cleared > 0 ? this.spin : null;
 
     this.spin = Spin.None;
-
+    this.nextPiece();
     return [sent, clearType];
   }
 

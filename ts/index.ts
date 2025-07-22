@@ -10,18 +10,18 @@ import {
   Spin,
 } from "./game/data.js";
 import { getKeys } from "./keyfinder.js";
-import { beamSearch, expand } from "./search/mod.js";
+import { beamSearch, expand } from "./search/index.js";
 import { WEIGHTS_HANDTUNED } from "./search/eval.js";
 
 export * from "./game/index.js";
 export * from "./game/data.js";
 export * from "./game/queue.js";
 export * from "./keyfinder.js";
-export * from "./search/mod.js";
+export * from "./search/index.js";
 export * from "./search/eval.js";
 
 function main(): void {
-  tests.testGame();
+  tests.testExpansion();
 }
 
 export namespace tests {
@@ -39,7 +39,8 @@ export namespace tests {
       garbageSpecialBonus: true,
     };
 
-    const queue = new Queue(Bag.Bag7, Math.random() * 1000000, 16, []);
+    // const queue = new Queue(Bag.Bag7, Math.random() * 1000000, 16, []);
+    const queue = new Queue(Bag.Bag7, 0, 16, []);
     const game = new Game(queue.shift(), queue.getFront16());
 
     return [config, queue, game];
@@ -48,7 +49,7 @@ export namespace tests {
   export function testGame(): void {
     const [config] = init();
 
-    const queue = new Queue(Bag.Bag7, Math.random() * 1000000, 16, []);
+    const queue = new Queue(Bag.Bag7, 0, 16, []);
     const game = new Game(queue.shift(), queue.getFront16());
 
     game.hardDrop(config);
@@ -91,7 +92,9 @@ export namespace tests {
           const keyStart = performance.now();
           const keys = getKeys(searchGame, config, [x, y, rot, spin]);
           console.log(
-            `${JSON.stringify(keys)} in ${(performance.now() - keyStart) * 1000} μs`
+            `${JSON.stringify(keys.map((key) => MoveData.getStr(key)))} in ${
+              (performance.now() - keyStart) * 1000
+            } μs`
           );
 
           console.log("------------------------");

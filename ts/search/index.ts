@@ -36,86 +36,54 @@ function movesToIndex(move: Move): number {
 export function expand(
   state: Game,
   config: GameConfig,
-  passed: bigint[],
+  passed: number[],
   res: Array<[number, number, number, Spin]>
-): [number, bigint] {
-  passed.fill(0n);
+): [number, number] {
+  for (let i = 0; i < passed.length; i++) {
+    passed[i] = 0;
+  }
 
-  const queue: Array<[number, number, number, Spin, Move]> = [];
+  const queue: Array<[number, number, number, Spin, Move]> = Array(512).fill([
+    0,
+    0,
+    0,
+    Spin.None,
+    Move.None,
+  ]);
   let frontPtr = 0;
   let backPtr = 1;
   let resPtr = 0;
-  let nodes = 0n;
-
+  let nodes = 0;
   queue[0] = [state.piece.x, state.piece.y, state.piece.rot, Spin.None, Move.None];
+  while (frontPtr < backPtr) {
+    const [x, y, rot, spin, prev] = queue[frontPtr++];
+    for (const mv of MOVES[movesToIndex(prev)]) {
+      nodes++;
 
-  while (frontPtr < backPtr && backPtr < 512) {
-    const [x, y, rot, spin, lastMove] = queue[frontPtr];
-    frontPtr++;
-    nodes++;
-
-    const stateHash =
-      BigInt(x) |
-      (BigInt(y) << 8n) |
-      (BigInt(rot) << 16n) |
-      (BigInt(spin === Spin.Normal ? 1 : 0) << 18n);
-    const slot = Number(stateHash % BigInt(passed.length));
-
-    if ((passed[slot] & (1n << stateHash % 64n)) !== 0n) {
-      continue;
-    }
-    passed[slot] |= 1n << stateHash % 64n;
-
-    state.piece.x = x;
-    state.piece.y = y;
-    state.piece.rot = rot;
-    state.spin = spin;
-
-    if (!state.collisionMap.test(x, y - 1, rot)) {
-      continue;
-    }
-
-    res[resPtr] = [x, y, rot, spin];
-    resPtr++;
-
-    if (resPtr >= res.length) {
-      break;
-    }
-
-    const availableMoves = MOVES[movesToIndex(lastMove)];
-    const oldSpin = state.spin;
-
-    for (const move of availableMoves) {
-      if (move === Move.None) continue;
-
-      const oldX = state.piece.x;
-      const oldY = state.piece.y;
-      const oldRot = state.piece.rot;
-      state.spin = oldSpin;
+      if (mv === Move.None) break;
 
       state.piece.x = x;
       state.piece.y = y;
       state.piece.rot = rot;
+      state.spin = spin;
 
-      if (MoveData.run(move, state, config)) {
-        if (backPtr < 512) {
-          queue[backPtr] = [
-            state.piece.x,
-            state.piece.y,
-            state.piece.rot,
-            state.spin,
-            move,
-          ];
-          backPtr++;
-        }
+      const fail = !MoveData.run(mv, state, config);
+
+      let compressed = x | (y << 4);
+      if (state.piece.mino !== Mino.O) {
+        compressed |= (rot << 10) | (state.spin << 12);
       }
-
-      state.piece.x = oldX;
-      state.piece.y = oldY;
-      state.piece.rot = oldRot;
+      const idx = compressed >> 6;
+      const bit = 1 << (compressed & 63);
+      if (mv === Move.SoftDrop && (passed[1024 + idx] & bit) === 0) {
+        passed[1024 + idx] |= bit;
+        res[resPtr++] = [state.piece.x, state.piece.y, state.piece.rot, state.spin];
+      }
+      if (fail || (passed[idx] & bit) !== 0) continue;
+      passed[idx] |= bit;
+      queue[backPtr++] = [state.piece.x, state.piece.y, state.piece.rot, state.spin, mv];
     }
   }
-
   return [resPtr, nodes];
 }
 
@@ -165,11 +133,11 @@ export function search(
   let bestResult: [[number, number, number, boolean, Spin], Game] | null = null;
 
   const queue: SearchState[] = [];
-  const expandPassed = new Array(2048).fill(0n);
+  const expandPassed = new Array(2048).fill(0);
   const expandRes: Array<[number, number, number, Spin]> = new Array(512);
 
   let ptr = 0;
-  let nodes = 0n;
+  let nodes = 0;
 
   const initialState = new SearchState(state.clone(), 0, 0, [], null);
   queue.push(initialState);

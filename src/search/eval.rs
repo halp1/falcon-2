@@ -92,6 +92,30 @@ pub const WEIGHTS_HANDTUNED: Weights = Weights {
   unevenness: -30,
 };
 
+pub const WEIGHTS_4W: Weights = Weights {
+  height: -50,
+  upper_half_height: -150,
+  upper_quarter_height: -300,
+  center_height: -100,
+
+  extra_wells: -100,
+
+  clear_none: 70,
+  clear_mini: 70,
+  clear_normal: 70,
+
+  sent: 0,
+
+  b2b: 0,
+  combo: 10000,
+
+  holes: 0,
+  covered_holes: -60,
+  overstacked_holes: -40,
+
+  unevenness: -30,
+};
+
 pub fn eval(weights: &Weights, state: &Game, sent: u16, clears: Vec<Spin>) -> i32 {
   let mut score = 0;
 

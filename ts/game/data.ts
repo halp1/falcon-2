@@ -1,11 +1,11 @@
 export enum Mino {
-  I = "I",
-  J = "J",
-  L = "L",
-  O = "O",
-  S = "S",
-  T = "T",
-  Z = "Z",
+  I,
+  J,
+  L,
+  O,
+  S,
+  T,
+  Z,
 }
 
 export interface TetrominoMatrix {
@@ -14,38 +14,38 @@ export interface TetrominoMatrix {
 }
 
 export enum Spin {
-  None = "none",
-  Mini = "mini",
-  Normal = "normal",
+  None,
+  Mini,
+  Normal,
 }
 
 export enum Spins {
-  None = "none",
-  T = "T",
-  Mini = "mini",
-  MiniPlus = "mini+",
-  All = "all",
+  None,
+  T,
+  Mini,
+  MiniPlus,
+  All,
 }
 
 export enum ComboTable {
-  None = "none",
-  Classic = "classic-guideline",
-  Modern = "modern-guideline",
-  Multiplier = "multiplier",
+  None,
+  Classic,
+  Modern,
+  Multiplier,
 }
 
 export enum Move {
-  None = "none",
-  Left = "moveLeft",
-  Right = "moveRight",
-  SoftDrop = "softDrop",
-  CCW = "rotateCCW",
-  CW = "rotateCW",
-  Flip = "rotate180",
-  DasLeft = "dasLeft",
-  DasRight = "dasRight",
-  Hold = "hold",
-  HardDrop = "hardDrop",
+  None,
+  Left,
+  Right,
+  SoftDrop,
+  CCW,
+  CW,
+  Flip,
+  DasLeft,
+  DasRight,
+  Hold,
+  HardDrop,
 }
 
 export enum KickTable {
@@ -271,7 +271,7 @@ const INDEX_LOOKUP_TABLE: number[][] = [
 ];
 
 interface KickData {
-	[key: string]: [number, number][][];
+  [key: string]: [number, number][][];
 }
 
 const SRS_KICKS: KickData = {
@@ -480,7 +480,22 @@ export class MinoData {
   }
 
   static getStr(mino: Mino): string {
-    return mino.toString();
+    switch (mino) {
+      case Mino.I:
+        return "I";
+      case Mino.J:
+        return "J";
+      case Mino.L:
+        return "L";
+      case Mino.O:
+        return "O";
+      case Mino.S:
+        return "S";
+      case Mino.T:
+        return "T";
+      case Mino.Z:
+        return "Z";
+    }
   }
 
   static getBlockStr(mino: Mino): string {
@@ -572,7 +587,7 @@ export class MoveData {
   }
 
   static getStr(move: Move): string {
-    return move.toString();
+    return this.getTriangleKey(move);
   }
 
   static getTriangleKey(move: Move): string {
@@ -580,25 +595,25 @@ export class MoveData {
       case Move.None:
         return "";
       case Move.Left:
-        return "L";
+        return "moveLeft";
       case Move.Right:
-        return "R";
+        return "moveRight";
       case Move.SoftDrop:
-        return "D";
+        return "softDrop";
       case Move.CCW:
-        return "A";
+        return "rotateCCW";
       case Move.CW:
-        return "B";
+        return "rotateCW";
       case Move.Flip:
-        return "AB";
+        return "rotate180";
       case Move.DasLeft:
-        return "LL";
+        return "dasLeft";
       case Move.DasRight:
-        return "RR";
+        return "dasRight";
       case Move.Hold:
-        return "C";
+        return "hold";
       case Move.HardDrop:
-        return "DD";
+        return "hardDrop";
     }
   }
 }
