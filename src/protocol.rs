@@ -110,7 +110,7 @@ pub async fn start_server() {
         // );
 
         let start = std::time::Instant::now();
-        let choice = beam_search(game.clone(), &(config.clone()).unwrap(), 10, &WEIGHTS_4W);
+        let choice = beam_search(game.clone(), &(config.clone()).unwrap(), 7, &WEIGHTS_4W);
         let elapsed = start.elapsed().as_secs_f64();
 
         if let Some(mv) = choice {

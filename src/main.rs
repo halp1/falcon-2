@@ -19,18 +19,18 @@ fn main() {
   futures::executor::block_on(protocol::start_server());
 
   // tests::test_play();
-  // tests::test_game();
 }
 
 pub mod tests {
   use super::*;
   use crate::{
-    game::{Game, data::Mino, print_board},
+    game::{data::{KickTable, Mino}, print_board, Game},
     search::eval::{WEIGHTS_4W, WEIGHTS_HANDTUNED},
   };
 
   pub fn init() -> (game::GameConfig, Queue, Game) {
     let config = game::GameConfig {
+			kicks: KickTable::SRSX,
       spins: Spins::MiniPlus,
       b2b_chaining: false,
       b2b_charging: true,
@@ -194,14 +194,6 @@ pub mod tests {
 
     let mut count = 0;
     let mut attack = 0;
-
-		
-    game.board.set(0, 0);
-    game.board.set(1, 0);
-    game.board.set(2, 0);
-    game.board.set(0, 1);
-    game.board.set(1, 1);
-    game.board.set(2, 1);
 		
 		let mut max_combo = -1;
 
@@ -214,7 +206,7 @@ pub mod tests {
         game.queue
       );
       let start = Instant::now();
-      let res = search::beam_search(game.clone(), config, 10, &WEIGHTS_4W);
+      let res = search::beam_search(game.clone(), config, 7, &WEIGHTS_4W);
       let elapsed = start.elapsed();
       if res.is_none() {
         println!("NO SOLUTION FOUND");

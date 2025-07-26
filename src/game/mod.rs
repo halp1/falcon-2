@@ -378,6 +378,7 @@ impl Falling {
 #[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GameConfig {
+	pub kicks: KickTable,
   pub spins: Spins,
   pub b2b_charging: bool,
   pub b2b_charge_at: i16,
