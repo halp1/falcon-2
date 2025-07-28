@@ -16,9 +16,9 @@ mod search;
 mod protocol;
 
 fn main() {
-  futures::executor::block_on(protocol::start_server());
+  // futures::executor::block_on(protocol::start_server());
 
-  // tests::test_play();
+  tests::test_play();
 }
 
 pub mod tests {
@@ -43,10 +43,10 @@ pub mod tests {
       garbage_special_bonus: true,
     };
 
-    // let mut queue = Queue::new(Bag::Bag7, rand::random::<u64>(), 16, Vec::from([]));
-    let mut queue = Queue::new(Bag::Bag7, 2, 16, Vec::from([]));
+    let mut queue = Queue::new(Bag::Bag7, rand::random::<u64>(), 32, Vec::from([]));
+    // let mut queue = Queue::new(Bag::Bag7, 2, 32, Vec::from([]));
 
-    let game = game::Game::new(queue.shift(), queue.get_front_16());
+    let game = game::Game::new(queue.shift(), queue.get_front_32());
 
     (config, queue, game)
   }
@@ -54,16 +54,29 @@ pub mod tests {
   pub fn test_game() {
     let (config, _, _) = init();
 
-    let mut queue = Queue::new(Bag::Bag7, 0, 16, Vec::from([Mino::I]));
+    let mut queue = Queue::new(Bag::Bag7, 0, 32, Vec::from([Mino::T]));
 
-    let mut game = game::Game::new(queue.shift(), queue.get_front_16());
+    let mut game = game::Game::new(queue.shift(), queue.get_front_32());
 
-    game.rotate(1, &config);
-    game.move_right();
-    game.soft_drop();
-    game.rotate(3, &config);
+    let points = [(0, 0), (1, 0), (2, 0), (0, 1), (0, 2), (0, 3), (1, 3), (1, 4)];
 
-    game.print();
+		for point in points.iter() {
+			game.board.set(point.0, point.1);
+		}
+
+		game.regen_collision_map();
+
+		println!("Initial board:");
+		game.print();
+
+		let keys = get_keys(game.clone(), &config, (4, 2, 3, Spin::Mini));
+		println!("Keys: {:?}", keys);
+
+		for key in keys.iter() {
+			key.run(&mut game, &config);
+			println!("After key: {:?}", key);
+			game.print();
+		}
   }
 
   pub fn test_expansion() {
@@ -206,7 +219,7 @@ pub mod tests {
         game.queue
       );
       let start = Instant::now();
-      let res = search::beam_search(game.clone(), config, 7, &WEIGHTS_4W);
+      let res = search::beam_search(game.clone(), config, 16, &WEIGHTS_4W);
       let elapsed = start.elapsed();
       if res.is_none() {
         println!("NO SOLUTION FOUND");
@@ -228,7 +241,7 @@ pub mod tests {
         key.run(&mut game, config);
       }
 
-      println!("PROJECTION ({} b2b):", res.1.b2b);
+      println!("PROJECTION ({} combo):", res.1.combo);
       res.1.board.print();
       println!(
         "{} {} {} {}",
@@ -266,7 +279,7 @@ pub mod tests {
 
       queue.shift();
       game.queue_ptr = 0;
-      game.queue = queue.get_front_16();
+      game.queue = queue.get_front_32();
 
       println!("B2B: {}", game.b2b);
       println!("COMBO: {}", game.combo);

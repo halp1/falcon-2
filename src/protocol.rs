@@ -5,10 +5,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
   game::{
-    data::Move, queue::{Bag, Queue}, Game, GameConfig, Garbage
+    Game, GameConfig, Garbage,
+    data::Move,
+    queue::{Bag, Queue},
   },
   keyfinder,
-  search::{beam_search, eval::{WEIGHTS_4W, WEIGHTS_HANDTUNED}},
+  search::{
+    beam_search,
+    eval::{WEIGHTS_4W, WEIGHTS_HANDTUNED},
+  },
 };
 
 #[derive(Deserialize)]
@@ -73,22 +78,22 @@ pub async fn start_server() {
     .await
     .unwrap();
 
-  let mut queue = Queue::new(Bag::Bag7, 0, 16, Vec::new());
-  let mut game = Game::new(queue.shift(), queue.get_front_16());
+  let mut queue = Queue::new(Bag::Bag7, 0, 32, Vec::new());
+  let mut game = Game::new(queue.shift(), queue.get_front_32());
   let mut config = Option::<GameConfig>::None;
   while let Some(msg) = incoming.next().await {
     match msg {
       Incoming::Start(start) => {
-        queue = Queue::new(start.bag, start.seed, 16, Vec::new());
+        queue = Queue::new(start.bag, start.seed, 32, Vec::new());
         config = Option::from(start.config);
-        game = Game::new(queue.shift(), queue.get_front_16());
+        game = Game::new(queue.shift(), queue.get_front_32());
       }
 
       Incoming::InsertGarbage(garbage) => {
         for gb in garbage.garbage {
           game.board.insert_garbage(gb.amt, gb.col);
         }
-				game.regen_collision_map();
+        game.regen_collision_map();
       }
 
       Incoming::Step(cfg) => {
@@ -110,7 +115,7 @@ pub async fn start_server() {
         // );
 
         let start = std::time::Instant::now();
-        let choice = beam_search(game.clone(), &(config.clone()).unwrap(), 7, &WEIGHTS_4W);
+        let choice = beam_search(game.clone(), &(config.clone()).unwrap(), 20, &WEIGHTS_4W);
         let elapsed = start.elapsed().as_secs_f64();
 
         if let Some(mv) = choice {
@@ -118,9 +123,11 @@ pub async fn start_server() {
           if mv.0.3 {
             double_shift = game.hold.is_none();
             game.hold();
+						game.regen_collision_map();
           }
 
           game.garbage.clear();
+
 
           let mut keys = keyfinder::get_keys(
             game.clone(),
@@ -128,19 +135,16 @@ pub async fn start_server() {
             (mv.0.0, mv.0.1, mv.0.2, mv.0.4),
           );
 
-          if mv.0.3 {
-            keys.insert(0, Move::Hold);
-          }
-
           for key in keys.iter() {
             key.run(&mut game, &config.clone().unwrap());
           }
 
+					if mv.0.3 {
+            keys.insert(0, Move::Hold);
+          }
+
           game.print();
-					println!(
-						"B2B: {}",
-						game.b2b
-					);
+          println!("B2B: {}", game.b2b);
 
           game.hard_drop(&config.clone().unwrap());
 
@@ -148,7 +152,7 @@ pub async fn start_server() {
             queue.shift();
           }
           queue.shift();
-          game.queue = queue.get_front_16();
+          game.queue = queue.get_front_32();
           game.queue_ptr = 0;
 
           outgoing
@@ -161,7 +165,7 @@ pub async fn start_server() {
         } else {
           game.hard_drop(&config.clone().unwrap());
           queue.shift();
-          game.queue = queue.get_front_16();
+          game.queue = queue.get_front_32();
           game.queue_ptr = 0;
           outgoing
             .send(Outgoing::Result {

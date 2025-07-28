@@ -36,7 +36,7 @@ pub struct Queue {
 
 impl Queue {
   pub fn new(bag: Bag, seed: u64, min_size: usize, initial: Vec<Mino>) -> Self {
-    assert!(min_size >= 16, "Bag min size must be at least 16");
+    assert!(min_size >= 32, "Bag min size must be at least 32");
     let mut rng = RNG::new(seed);
 
     let mut queue: VecDeque<Mino> = VecDeque::with_capacity(min_size + 7);
@@ -60,7 +60,7 @@ impl Queue {
   }
 
   pub fn shift(&mut self) -> Mino {
-    let res = self.queue.pop_front().unwrap_or(Mino::I);
+    let res = self.queue.pop_front().unwrap_or_else(|| unreachable!("Queue is empty!"));
 
     while self.queue.len() < self.min_size {
       for mino in self.rng.shuffle(self.bag.get_cycle()) {
@@ -71,10 +71,10 @@ impl Queue {
     res
   }
 
-  pub fn get_front_16(&self) -> [Mino; 16] {
-    let mut res = [Mino::I; 16];
+  pub fn get_front_32(&self) -> [Mino; 32] {
+    let mut res = [Mino::I; 32];
 
-    for i in 0usize..16 {
+    for i in 0usize..32 {
       res[i] = *self.queue.get(i).unwrap_or(&Mino::I);
     }
 

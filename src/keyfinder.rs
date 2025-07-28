@@ -49,11 +49,12 @@ const MOVES: [[Move; 9]; 9] = [
     Move::Right,
     Move::DasLeft,
     Move::DasRight,
-    Move::HardDrop,
+    Move::None,
     Move::None,
   ],
   // CCW
   [
+		Move::CW, // clockwise after counter-clockwise allows for tsm
     Move::CCW,
     Move::Flip,
     Move::Left,
@@ -62,11 +63,11 @@ const MOVES: [[Move; 9]; 9] = [
     Move::DasLeft,
     Move::DasRight,
     Move::HardDrop,
-    Move::None,
   ],
   // CW
   [
     Move::CW,
+		Move::CCW, // counter-clockwise after clockwise allows for tsm
     Move::Flip,
     Move::Left,
     Move::Right,
@@ -74,7 +75,6 @@ const MOVES: [[Move; 9]; 9] = [
     Move::DasLeft,
     Move::DasRight,
     Move::HardDrop,
-    Move::None,
   ],
   // Flip
   [
@@ -117,7 +117,7 @@ const MOVES: [[Move; 9]; 9] = [
 pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)) -> Vec<Move> {
   let mut passed = [0u64; 1024];
 
-  let mut queue = [(0, 0, 0, Spin::None, ([Move::None; 10], 0usize)); 2048];
+  let mut queue = [(0, 0, 0, Spin::None, ([Move::None; 16], 0usize)); 2048];
 
   let mut front_ptr = 0;
   let mut back_ptr = 1;
@@ -135,8 +135,10 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
     state.piece.y,
     state.piece.rot,
     Spin::None,
-    ([Move::None; 10], 0usize),
+    ([Move::None; 16], 0usize),
   );
+
+  let game = state.clone();
 
   while front_ptr < back_ptr {
     let (x, y, rot, spin, moves) = queue[front_ptr];
@@ -219,12 +221,14 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
   }
 
   state.print();
-	println!("Target:");
+  println!("Target:");
   state.piece.x = target.0;
   state.piece.y = target.1;
   state.piece.rot = target.2;
   state.spin = target.3;
   state.print();
+  println!("Initial:");
+  game.print();
 
   panic!("No move found (tgt spin: {})", target.3.str());
 }

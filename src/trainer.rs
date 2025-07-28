@@ -15,10 +15,10 @@ struct Player {
   performance: u32,
 }
 fn play_match(config: &GameConfig, w1: &Weights, w2: &Weights) -> u8 {
-  let mut q1 = Queue::new(Bag::Bag7, rand::random::<u64>(), 16, Vec::new());
+  let mut q1 = Queue::new(Bag::Bag7, rand::random::<u64>(), 32, Vec::new());
   let mut q2 = q1.clone();
-  let mut g1 = Game::new(q1.shift(), q1.get_front_16());
-  let mut g2 = Game::new(q2.shift(), q2.get_front_16());
+  let mut g1 = Game::new(q1.shift(), q1.get_front_32());
+  let mut g2 = Game::new(q2.shift(), q2.get_front_32());
 
   loop {
     // player 1’s move
@@ -89,8 +89,8 @@ fn play_match(config: &GameConfig, w1: &Weights, w2: &Weights) -> u8 {
 		q2.shift();
 		g1.queue_ptr = 0;
 		g2.queue_ptr = 0;
-		g1.queue = q1.get_front_16();
-		g2.queue = q2.get_front_16();
+		g1.queue = q1.get_front_32();
+		g2.queue = q2.get_front_32();
 
 		// check for game over
 		if g1.topped_out() {

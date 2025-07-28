@@ -301,7 +301,7 @@ use std::collections::BinaryHeap;
 // `expand(&mut Game, &GameConfig, &mut [u64;2048], &mut [(u8,u8,u8,Spin);512]) -> (usize, _)`,
 // and `eval(&Game, u16, Vec<Spin>) -> i32` are defined elsewhere.
 
-const BEAM_WIDTH: usize = 100;
+const BEAM_WIDTH: usize = 200;
 
 #[derive(Clone)]
 struct Candidate {

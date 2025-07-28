@@ -101,8 +101,8 @@ pub const WEIGHTS_4W: Weights = Weights {
   extra_wells: -100,
 
   clear_none: 70,
-  clear_mini: 70,
-  clear_normal: 70,
+  clear_mini: 140,
+  clear_normal: 140,
 
   sent: 0,
 

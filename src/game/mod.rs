@@ -403,7 +403,7 @@ pub struct Garbage {
 #[derive(Clone, Debug)]
 pub struct Game {
   pub board: Board,
-  pub queue: [Mino; 16],
+  pub queue: [Mino; 32],
   pub queue_ptr: usize,
   pub b2b: i16,
   pub combo: i16,
@@ -415,7 +415,7 @@ pub struct Game {
 }
 
 impl Game {
-  pub fn new(piece: Mino, queue: [Mino; 16]) -> Self {
+  pub fn new(piece: Mino, queue: [Mino; 32]) -> Self {
     let tetromino = piece.data();
     let board = Board::new();
     let piece = Falling {
