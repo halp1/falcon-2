@@ -434,3 +434,191 @@ pub fn beam_search(
     .max_by_key(|cand| cand.score)
     .and_then(|cand| cand.state.first_move.map(|m| (m, cand.state.game)))
 }
+
+// A* search implementation
+use std::collections::HashMap;
+
+#[derive(Clone)]
+struct AStarNode {
+  state: SearchState,
+  f_cost: i32,
+  g_cost: i32,
+}
+
+impl PartialEq for AStarNode {
+  fn eq(&self, other: &Self) -> bool {
+    self.f_cost == other.f_cost
+  }
+}
+
+impl Eq for AStarNode {}
+
+impl PartialOrd for AStarNode {
+  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    Some(self.cmp(other))
+  }
+}
+
+impl Ord for AStarNode {
+  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    self.f_cost.cmp(&other.f_cost)
+  }
+}
+
+fn board_hash(board: &[u64; BOARD_WIDTH]) -> u64 {
+  use std::collections::hash_map::DefaultHasher;
+  use std::hash::{Hash, Hasher};
+  
+  let mut hasher = DefaultHasher::new();
+  board.hash(&mut hasher);
+  hasher.finish()
+}
+
+/// A* search for optimal Tetris play.
+/// Uses evaluation function as heuristic for maximum performance.
+pub fn astar_search(
+  root_game: Game,
+  config: &GameConfig,
+  max_depth: u8,
+  weights: &Weights,
+) -> Option<((u8, u8, u8, bool, Spin), Game)> {
+  let start = Instant::now();
+  
+  // Priority queue (min-heap) for A* open set
+  let mut open_set: BinaryHeap<Reverse<AStarNode>> = BinaryHeap::with_capacity(16384);
+  
+  // Track visited board states with their best g_cost to avoid revisiting worse paths
+  let mut visited: HashMap<u64, (i32, u8)> = HashMap::with_capacity(32768);
+  
+  // Reusable buffers for expand function
+  let mut expand_passed = [0u64; 2048];
+  let mut expand_res = [(0u8, 0u8, 0u8, Spin::None); 512];
+  
+  // Initialize with root state
+  let init_state = SearchState {
+    game: root_game.clone(),
+    depth: 0,
+    lines_sent: 0,
+    clears: Vec::new(),
+    first_move: None,
+  };
+  
+  let init_eval = eval(weights, &root_game, 0, Vec::new());
+  let init_heuristic = -init_eval * (max_depth as i32 - 0);
+  
+  let init_node = AStarNode {
+    state: init_state,
+    f_cost: init_heuristic,
+    g_cost: 0,
+  };
+  
+  open_set.push(Reverse(init_node));
+  
+  let mut nodes_expanded = 0u64;
+  let mut best_result: Option<(Game, i32, (u8, u8, u8, bool, Spin))> = None;
+
+  while let Some(Reverse(current)) = open_set.pop() {
+    nodes_expanded += 1;
+    
+    // If we've reached max depth, evaluate and potentially update best
+    if current.state.depth >= max_depth {
+      let score = eval(weights, &current.state.game, current.state.lines_sent, current.state.clears.clone());
+      if best_result.is_none() || score > best_result.as_ref().unwrap().1 {
+        if let Some(first_move) = current.state.first_move {
+          best_result = Some((current.state.game.clone(), score, first_move));
+        }
+      }
+      continue;
+    }
+    
+    // Get board hash for visited check
+    let board_hash_val = board_hash(&current.state.game.board.cols);
+    
+    // Skip if we've already visited this state with better or equal g_cost at same/better depth
+    if let Some(&(best_g, best_depth)) = visited.get(&board_hash_val) {
+      if best_g <= current.g_cost && best_depth <= current.state.depth {
+        continue;
+      }
+    }
+    
+    visited.insert(board_hash_val, (current.g_cost, current.state.depth));
+    
+    // Expand current node with and without hold
+    for use_hold in [false, true] {
+      let mut game_copy = current.state.game.clone();
+      
+      if use_hold {
+        game_copy.hold();
+        game_copy.regen_collision_map();
+      }
+      
+      // Get all possible moves
+      let (num_moves, _) = expand(&mut game_copy, config, &mut expand_passed, &mut expand_res);
+      
+      for i in 0..num_moves {
+        let (x, y, rot, spin) = expand_res[i];
+        let mut next_game = game_copy.clone();
+        next_game.piece.x = x;
+        next_game.piece.y = y;
+        next_game.piece.rot = rot;
+        next_game.spin = spin;
+        
+        let (lines, clear) = next_game.hard_drop(config);
+        next_game.regen_collision_map();
+        
+        // Skip if game over
+        if next_game.topped_out() {
+          continue;
+        }
+        
+        // Build successor state
+        let mut next_clears = current.state.clears.clone();
+        if let Some(c) = clear {
+          next_clears.push(c);
+        }
+        
+        let next_sent = current.state.lines_sent + lines;
+        let next_depth = current.state.depth + 1;
+        let next_first = current.state.first_move.or(Some((x, y, rot, use_hold, spin)));
+        
+        let next_state = SearchState {
+          game: next_game.clone(),
+          depth: next_depth,
+          lines_sent: next_sent,
+          clears: next_clears.clone(),
+          first_move: next_first,
+        };
+        
+        // Calculate costs
+        let step_cost = 1; // Uniform cost per move
+        let next_g_cost = current.g_cost + step_cost;
+        
+        // Use negative evaluation as heuristic (higher eval = lower h_cost)
+        let eval_score = eval(weights, &next_game, next_sent, next_clears);
+        let remaining_depth = max_depth as i32 - next_depth as i32;
+        let h_cost = -eval_score * remaining_depth.max(1);
+        
+        let f_cost = next_g_cost + h_cost;
+        
+        let next_node = AStarNode {
+          state: next_state,
+          f_cost,
+          g_cost: next_g_cost,
+        };
+        
+        open_set.push(Reverse(next_node));
+      }
+    }
+    
+    // Early termination if we have good solution and searched enough
+    if nodes_expanded > 50000 && best_result.is_some() {
+      break;
+    }
+  }
+  
+  let elapsed = start.elapsed();
+  println!("A* nodes expanded: {}", nodes_expanded);
+  println!("A* NPS: {}", nodes_expanded as f32 / elapsed.as_secs_f32());
+  
+  best_result.map(|(game, _, first_move)| (first_move, game))
+}

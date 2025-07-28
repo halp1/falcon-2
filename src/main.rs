@@ -210,6 +210,11 @@ pub mod tests {
 		
 		let mut max_combo = -1;
 
+		game.board.set(0, 0);
+		game.board.set(1, 0);
+		game.board.set(3, 0);
+
+
     loop {
       count += 1;
 
@@ -219,7 +224,7 @@ pub mod tests {
         game.queue
       );
       let start = Instant::now();
-      let res = search::beam_search(game.clone(), config, 16, &WEIGHTS_4W);
+      let res = search::astar_search(game.clone(), config, 28, &WEIGHTS_4W);
       let elapsed = start.elapsed();
       if res.is_none() {
         println!("NO SOLUTION FOUND");
