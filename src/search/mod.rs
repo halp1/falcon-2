@@ -374,28 +374,75 @@ pub fn expand_floodfill(
       break;
     }
 
-    // Batch floodfill operations
+    // Incremental floodfill: expand both kick-only seeds and new flood seeds via BFS
+    let mut new_frontier = [[0u64; BOARD_WIDTH + 2]; 4];
     for rot in 0..4 {
+      // snapshot explored before flood
+      let old = old_explored[rot];
+      // seeds are positions added by kicks (and previous flood)
+      let seeds = next_new[rot];
+      // visited mask starts at seeds
+      let mut visited = seeds;
+      // build BFS queue of seed positions
+      let mut read = 0usize;
+      let mut write = 0usize;
       for x in 0..BOARD_WIDTH + 2 {
-        let mut bits = next_new[rot][x];
+        let mut bits = seeds[x];
         while bits != 0 {
           let y = bits.trailing_zeros() as usize;
           bits &= bits - 1;
-
-          let reached = floodfill(&col_masks[rot], (x, y), &mut stack);
-
-          // Batch update all columns
-          for xx in 0..BOARD_WIDTH + 2 {
-            let fresh = reached[xx] & !explored[rot][xx];
-            if fresh != 0 {
-              explored[rot][xx] |= fresh;
-              next_new[rot][xx] |= fresh;
-            }
+          stack[write] = ((x as u64) << 32) | (y as u64);
+          write += 1;
+        }
+      }
+      // BFS floodfill from all seeds
+      while read < write {
+        let packed = stack[read];
+        read += 1;
+        let cx = (packed >> 32) as usize;
+        let cy = (packed & 0xFFFF_FFFF) as usize;
+        let bit = 1u64 << cy;
+        // left neighbor
+        if cx > 0 && (col_masks[rot][cx - 1] & bit) == 0 {
+          let below = col_masks[rot][cx - 1] & ((1u64 << cy) - 1);
+          let fy = if below == 0 {
+            0
+          } else {
+            (below.trailing_zeros() as usize) + 1
+          };
+          let nbit = 1u64 << fy;
+          if visited[cx - 1] & nbit == 0 {
+            visited[cx - 1] |= nbit;
+            stack[write] = (((cx - 1) as u64) << 32) | (fy as u64);
+            write += 1;
+          }
+        }
+        // right neighbor
+        if cx + 1 < BOARD_WIDTH + 2 && (col_masks[rot][cx + 1] & bit) == 0 {
+          let below = col_masks[rot][cx + 1] & ((1u64 << cy) - 1);
+          let fy = if below == 0 {
+            0
+          } else {
+            (below.trailing_zeros() as usize) + 1
+          };
+          let nbit = 1u64 << fy;
+          if visited[cx + 1] & nbit == 0 {
+            visited[cx + 1] |= nbit;
+            stack[write] = (((cx + 1) as u64) << 32) | (fy as u64);
+            write += 1;
           }
         }
       }
+      // mark explored and build new frontier
+      for x in 0..BOARD_WIDTH + 2 {
+        let fresh = visited[x] & !old[x];
+        if fresh != 0 || seeds[x] != 0 {
+          explored[rot][x] |= fresh;
+          new_frontier[rot][x] = seeds[x] | fresh;
+        }
+      }
     }
-
+    next_new = new_frontier;
     newly = next_new;
   }
 
