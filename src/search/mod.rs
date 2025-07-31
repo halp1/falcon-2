@@ -165,54 +165,83 @@ pub fn expand(
 }
 
 fn floodfill(
-  map: &[u64; BOARD_WIDTH + 2],
-  seed: (usize, usize),
-  stack: &mut [u64; BOARD_WIDTH * BOARD_HEIGHT],
+  collision_map: &[u64; BOARD_WIDTH + 2],
+  seed_position: (usize, usize),
+  work_stack: &mut [u64; BOARD_WIDTH * BOARD_HEIGHT],
 ) -> [u64; BOARD_WIDTH + 2] {
-  let mut result = [0u64; BOARD_WIDTH + 2];
-  let (seed_x, seed_y) = seed;
-  let mut sp = 0;
-  let mut ep = 0;
-  let below0 = map[seed_x] & ((1u64 << seed_y) - 1);
-  let init_y = if below0 == 0 {
-    0
+  // Initialize the result bitset to track all reachable positions
+  let mut reachable_positions = [0u64; BOARD_WIDTH + 2];
+
+  let (seed_x, seed_y) = seed_position;
+
+  // Stack pointers for BFS traversal
+  let mut stack_read_ptr = 0;
+  let mut stack_write_ptr = 0;
+
+  // Find the lowest reachable Y position in the seed column by dropping down
+  // to the first solid block (or bottom of board)
+  let blocks_below_seed = collision_map[seed_x] & ((1u64 << seed_y) - 1);
+  let floor_y = if blocks_below_seed == 0 {
+    0 // No blocks below, drop to bottom
   } else {
-    (below0.trailing_zeros() as usize) + 1
+    // Drop to one position above the highest block below us
+    (blocks_below_seed.trailing_zeros() as usize) + 1
   };
-  stack[ep] = ((seed_x as u64) << 32) | init_y as u64;
-  ep += 1;
-  while sp < ep {
-    let val = stack[sp];
-    sp += 1;
-    let x = (val >> 32) as usize;
-    let y = (val & 0xFFFF_FFFF) as usize;
-    let bit = 1u64 << y;
-    if result[x] & bit != 0 {
+
+  // Add the starting position to the stack (packed as x in high 32 bits, y in low 32 bits)
+  work_stack[stack_write_ptr] = ((seed_x as u64) << 32) | floor_y as u64;
+  stack_write_ptr += 1;
+
+  // Process all positions in the stack using BFS
+  while stack_read_ptr < stack_write_ptr {
+    // Unpack the current position from the stack
+    let packed_position = work_stack[stack_read_ptr];
+    stack_read_ptr += 1;
+
+    let current_x = (packed_position >> 32) as usize;
+    let current_y = (packed_position & 0xFFFF_FFFF) as usize;
+    let position_bit = 1u64 << current_y;
+
+    // Skip if we've already visited this position
+    if reachable_positions[current_x] & position_bit != 0 {
       continue;
     }
-    result[x] |= bit;
-    if x > 0 && (map[x - 1] & bit) == 0 {
-      let below = map[x - 1] & ((1u64 << y) - 1);
-      let new_y = if below == 0 {
+
+    // Mark this position as reachable
+    reachable_positions[current_x] |= position_bit;
+
+    // Check left neighbor column
+    if current_x > 0 && (collision_map[current_x - 1] & position_bit) == 0 {
+      // Find the floor position in the left column by dropping down
+      let blocks_below = collision_map[current_x - 1] & ((1u64 << current_y) - 1);
+      let floor_y_left = if blocks_below == 0 {
         0
       } else {
-        (below.trailing_zeros() as usize) + 1
+        (blocks_below.trailing_zeros() as usize) + 1
       };
-      stack[ep] = (((x - 1) as u64) << 32) | new_y as u64;
-      ep += 1;
+
+      // Add the floor position in the left column to the stack
+      work_stack[stack_write_ptr] = (((current_x - 1) as u64) << 32) | floor_y_left as u64;
+      stack_write_ptr += 1;
     }
-    if x + 1 < BOARD_WIDTH + 2 && (map[x + 1] & bit) == 0 {
-      let below = map[x + 1] & ((1u64 << y) - 1);
-      let new_y = if below == 0 {
+
+    // Check right neighbor column
+    if current_x + 1 < BOARD_WIDTH + 2 && (collision_map[current_x + 1] & position_bit) == 0 {
+      // Find the floor position in the right column by dropping down
+      let blocks_below = collision_map[current_x + 1] & ((1u64 << current_y) - 1);
+      let floor_y_right = if blocks_below == 0 {
         0
       } else {
-        (below.trailing_zeros() as usize) + 1
+        (blocks_below.trailing_zeros() as usize) + 1
       };
-      stack[ep] = (((x + 1) as u64) << 32) | new_y as u64;
-      ep += 1;
+
+      // Add the floor position in the right column to the stack
+      work_stack[stack_write_ptr] = (((current_x + 1) as u64) << 32) | floor_y_right as u64;
+      stack_write_ptr += 1;
     }
   }
-  result
+
+  reachable_positions
 }
 
 pub fn expand_floodfill(
@@ -291,6 +320,8 @@ pub fn expand_floodfill(
 
   // Kick-loop with optimized rotation pairs
   loop {
+    // snapshot explored before applying kicks, so seeds aren’t considered old
+    let old_explored = explored;
     let mut any = false;
     let mut next_new = [[0u64; BOARD_WIDTH + 2]; 4];
 
@@ -389,9 +420,13 @@ pub fn expand_floodfill(
     let max_dy = max_dys[rot];
 
     for x in max_dx..BOARD_WIDTH + 2 {
-			if x >= state.piece.mino.data().w.into() && state.piece.mino.data().rots[rot].iter().any(|&(dx, _)| x - dx as usize >= BOARD_WIDTH) {
-				continue;
-			}
+      if x >= state.piece.mino.data().w.into()
+        && state.piece.mino.data().rots[rot]
+          .iter()
+          .any(|&(dx, _)| x - dx as usize >= BOARD_WIDTH)
+      {
+        continue;
+      }
       let mut bits = explored[rot][x];
       while bits != 0 && res_ptr < 512 {
         let y = bits.trailing_zeros() as u8;
