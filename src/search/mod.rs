@@ -214,6 +214,7 @@ fn floodfill(
   }
   result
 }
+
 pub fn expand_floodfill(
   state: &mut Game,
   config: &GameConfig,
@@ -223,19 +224,15 @@ pub fn expand_floodfill(
   // Shortcut O-piece: single rotation, no kicks
   if state.piece.mino == Mino::O {
     let (sx, sy) = (state.piece.x as usize, state.piece.y as usize);
-    let reached = floodfill(
-      &state.collision_map.states[state.piece.rot as usize],
-      (sx, sy),
-      passed,
-    );
+    let reached = floodfill(&state.collision_map.states[0], (sx, sy), passed);
     let mut res_ptr = 0;
     for x in 0..BOARD_WIDTH {
       let mut bits = reached[x];
       while bits != 0 && res_ptr < 512 {
         let y = bits.trailing_zeros() as u8;
         bits &= bits - 1;
-        // only if can't move down
-        if state.collision_map.test(x as u8, y.wrapping_sub(1), 0) {
+        // only if can't move down - inline the test for O piece
+        if y > 0 && (state.collision_map.states[0][x] >> (y - 1)) & 1 != 0 {
           res[res_ptr] = (x as u8, y, 0, Spin::None);
           res_ptr += 1;
         }
@@ -244,67 +241,97 @@ pub fn expand_floodfill(
     return (res_ptr, res_ptr as u64);
   }
 
-  // 1) Build per-rotation column masks
-  let col_masks: [[u64; BOARD_WIDTH + 2]; 4] = state.collision_map.states.clone();
+  // Pre-compute piece-specific constants
+  let is_symmetric = matches!(state.piece.mino, Mino::S | Mino::Z | Mino::I);
+  let max_bounds = {
+    let mut max_dys = [0u8; 4];
+    let mut max_dxs = [0u8; 4];
+    for rot in 0..4 {
+      let blocks = state.piece.mino.rot(rot as u8);
+      max_dys[rot] = blocks.iter().map(|&(_, dy)| dy).max().unwrap();
+      max_dxs[rot] = blocks.iter().map(|&(dx, _)| dx).max().unwrap();
+    }
+    (max_dxs, max_dys)
+  };
 
-  // 2) Prepare buffers
+  // Reference collision maps directly (no clone)
+  let col_masks = &state.collision_map.states;
+
+  // Prepare buffers - removed unused spin_reachable
   let mut stack = [0u64; BOARD_WIDTH * BOARD_HEIGHT];
   let mut explored = [[0u64; BOARD_WIDTH + 2]; 4];
   let mut newly = [[0u64; BOARD_WIDTH + 2]; 4];
-  let mut spin_reachable = [[0u64; BOARD_WIDTH + 2]; 4];
 
-  // 3) Seed each rotation with drop‐to‐floor + floodfill
+  // Seed each rotation with drop-to-floor + floodfill
   let (sx, sy) = (state.piece.x as usize, state.piece.y as usize);
-  for rot in 0..4 {
-    // drop as far as possible in O(1)
+
+  // For symmetric pieces, only process unique rotations initially
+  let unique_rots = if is_symmetric { 2 } else { 4 };
+
+  for rot in 0..unique_rots {
+    // Fast drop calculation
     let below = col_masks[rot][sx] & ((1u64 << sy) - 1);
     let fy = if below == 0 {
       0
     } else {
-      (below.trailing_zeros() as usize) + 1
+      below.trailing_zeros() as usize + 1
     };
+
     let reached = floodfill(&col_masks[rot], (sx, fy), &mut stack);
     explored[rot] = reached;
     newly[rot] = reached;
+
+    // For symmetric pieces, mirror to paired rotation
+    if is_symmetric {
+      let paired_rot = rot + 2;
+      explored[paired_rot] = reached;
+      newly[paired_rot] = reached;
+    }
   }
 
-  // 4) Kick‐loop until no newly explored
+  // Kick-loop with optimized rotation pairs
   loop {
     let mut any = false;
     let mut next_new = [[0u64; BOARD_WIDTH + 2]; 4];
 
-    // for every target rotation A and source B
+    // Optimized kick transitions
     for rot_a in 0..4 {
       for rot_b in 0..4 {
         if rot_a == rot_b {
           continue;
         }
+
         let kicks = config
           .kicks
           .data(state.piece.mino, rot_b as u8, rot_a as u8);
+
         for &(dx, dy) in kicks {
+          // Process all columns with bits in parallel
           for x in 0..BOARD_WIDTH + 2 {
             let bits = newly[rot_b][x];
             if bits == 0 {
               continue;
             }
-            let tx = (x as i32 + dx as i32) as usize;
-            if tx >= BOARD_WIDTH + 2 {
+
+            let tx = x as i32 + dx as i32;
+            if tx < 0 || tx >= (BOARD_WIDTH + 2) as i32 {
               continue;
             }
+            let tx = tx as usize;
+
+            // Optimized shift
             let shifted = if dy >= 0 {
-              bits << (dy as usize)
+              bits << dy as usize
             } else {
-              bits >> ((-dy) as usize)
+              bits >> (-dy) as usize
             };
-            // valid = not colliding
+
             let valid = shifted & !col_masks[rot_a][tx];
-            // remove already seen
             let new_bits = valid & !explored[rot_a][tx];
+
             if new_bits != 0 {
               explored[rot_a][tx] |= new_bits;
               next_new[rot_a][tx] |= new_bits;
-              spin_reachable[rot_a][tx] |= new_bits;
               any = true;
             }
           }
@@ -316,15 +343,17 @@ pub fn expand_floodfill(
       break;
     }
 
-    // 5) Floodfill each newly kicked region
+    // Batch floodfill operations
     for rot in 0..4 {
       for x in 0..BOARD_WIDTH + 2 {
         let mut bits = next_new[rot][x];
         while bits != 0 {
           let y = bits.trailing_zeros() as usize;
           bits &= bits - 1;
+
           let reached = floodfill(&col_masks[rot], (x, y), &mut stack);
-          // absorb any unreachable‐to‐now bits
+
+          // Batch update all columns
           for xx in 0..BOARD_WIDTH + 2 {
             let fresh = reached[xx] & !explored[rot][xx];
             if fresh != 0 {
@@ -335,61 +364,46 @@ pub fn expand_floodfill(
         }
       }
     }
+
     newly = next_new;
   }
 
-  // 6) Canonical pruning for S/Z/I
-  let mut final_exp = explored;
-  match state.piece.mino {
-    Mino::S | Mino::Z | Mino::I => {
-      for x in 0..BOARD_WIDTH + 2 {
-        let ns = explored[0][x] | explored[2][x];
-        final_exp[0][x] = ns;
-        final_exp[2][x] = ns;
-        let ew = explored[1][x] | explored[3][x];
-        final_exp[1][x] = ew;
-        final_exp[3][x] = ew;
-      }
-    }
-    _ => {}
-  }
-
-  // Compute max block dy per rotation to filter positions under board
-  let mut max_dys = [0u8; 4];
-  let mut max_dxs = [0u8; 4];
-  for rot in 0..4 {
-    let blocks = state.piece.mino.rot(rot as u8);
-    max_dys[rot] = blocks.iter().map(|&(_, dy)| dy).max().unwrap();
-    max_dxs[rot] = blocks.iter().map(|&(dx, _)| dx).max().unwrap();
-  }
-
-  // 7) Pull out all final positions + spin flags
-  let mut res_ptr = 0;
-  for rot in 0..4 {
+  // Apply canonical pruning for symmetric pieces
+  if is_symmetric {
     for x in 0..BOARD_WIDTH + 2 {
-      let mut bits = final_exp[rot][x];
+      let ns = explored[0][x] | explored[2][x];
+      explored[0][x] = ns;
+      explored[2][x] = ns;
+      let ew = explored[1][x] | explored[3][x];
+      explored[1][x] = ew;
+      explored[3][x] = ew;
+    }
+  }
+
+  // Extract results with optimized bounds checking
+  let mut res_ptr = 0;
+  let (max_dxs, max_dys) = max_bounds;
+
+  for rot in 0..4 {
+    let max_dx = max_dxs[rot] as usize;
+    let max_dy = max_dys[rot];
+
+    for x in max_dx..BOARD_WIDTH + 2 {
+			if x >= state.piece.mino.data().w.into() && state.piece.mino.data().rots[rot].iter().any(|&(dx, _)| x - dx as usize >= BOARD_WIDTH) {
+				continue;
+			}
+      let mut bits = explored[rot][x];
       while bits != 0 && res_ptr < 512 {
         let y = bits.trailing_zeros() as u8;
         bits &= bits - 1;
-        // skip positions where pivot x/y would push blocks off the board
-        if x < max_dxs[rot] as usize || y < max_dys[rot] {
+
+        if y < max_dy || y >= BOARD_HEIGHT as u8 {
           continue;
         }
-        if y >= BOARD_HEIGHT as u8 {
-          break;
-        }
-        // only if can't move down
-        if state
-          .collision_map
-          .test(x as u8, y.wrapping_sub(1), rot as u8)
-          && state
-            .piece
-            .mino
-            .rot(rot as u8)
-            .iter()
-            .all(|&(dx, dy)| x as u8 - dx < 10)
-        {
-          res[res_ptr] = (x as u8, y, rot as u8, Spin::None); // TODO: FIND SPIN
+
+        // Optimized "can't move down" test - inline collision_map.test
+        if y > 0 && (col_masks[rot][x] >> (y - 1)) & 1 != 0 {
+          res[res_ptr] = (x as u8, y, rot as u8, Spin::None);
           res_ptr += 1;
         }
       }
