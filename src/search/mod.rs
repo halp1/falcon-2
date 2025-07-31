@@ -333,6 +333,28 @@ pub fn expand_floodfill(
     }
   }
 
+  // Pre-flatten kick tests for this piece
+  let mino = state.piece.mino;
+  let mut kick_tests: [[&[(i8, i8)]; 4]; 4] = [[&[]; 4]; 4];
+  for from in 0..4 {
+    for to in 0..4 {
+      if from == to {
+        continue;
+      }
+      kick_tests[from][to] = config.kicks.data(mino, from as u8, to as u8);
+    }
+  }
+  // Pre-flatten kick data for this piece
+  let mino = state.piece.mino;
+  let mut kick_tests: [[&[(i8, i8); 11]; 4]; 4] = [[&[(0i8, 0i8); 11]; 4]; 4];
+  for from in 0..4 {
+    for to in 0..4 {
+      if from == to {
+        continue;
+      }
+      kick_tests[from][to] = config.kicks.data(mino, from as u8, to as u8);
+    }
+  }
   // Kick-loop with optimized rotation pairs
   loop {
     // snapshot explored before applying kicks, so seeds aren’t considered old
@@ -347,11 +369,9 @@ pub fn expand_floodfill(
           continue;
         }
 
-        let kicks = config
-          .kicks
-          .data(state.piece.mino, rot_b as u8, rot_a as u8);
+        let kicks = kick_tests[rot_b][rot_a];
 
-        for &(dx, dy) in kicks {
+        for &(dx, dy) in kicks.iter() {
           // Process all columns with bits in parallel
           for x in 0..BOARD_WIDTH + 2 {
             let bits = newly[rot_b][x];
