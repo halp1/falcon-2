@@ -1,5 +1,7 @@
 #![allow(unused_variables)]
 
+#[cfg(target_feature = "bmi1")]
+use core::arch::x86_64::_tzcnt_u64;
 use std::{collections::HashSet, time::Instant};
 
 use crate::game::{
@@ -182,10 +184,16 @@ fn floodfill(
   // to the first solid block (or bottom of board)
   let blocks_below_seed = collision_map[seed_x] & ((1u64 << seed_y) - 1);
   let floor_y = if blocks_below_seed == 0 {
-    0 // No blocks below, drop to bottom
+    0
   } else {
-    // Drop to one position above the highest block below us
-    (blocks_below_seed.trailing_zeros() as usize) + 1
+    #[cfg(target_feature = "bmi1")]
+    unsafe {
+      _tzcnt_u64(blocks_below_seed) as usize + 1
+    }
+    #[cfg(not(target_feature = "bmi1"))]
+    {
+      (blocks_below_seed.trailing_zeros() as usize) + 1
+    }
   };
 
   // Add the starting position to the stack (packed as x in high 32 bits, y in low 32 bits)
@@ -217,7 +225,14 @@ fn floodfill(
       let floor_y_left = if blocks_below == 0 {
         0
       } else {
-        (blocks_below.trailing_zeros() as usize) + 1
+        #[cfg(target_feature = "bmi1")]
+        unsafe {
+          _tzcnt_u64(blocks_below) as usize + 1
+        }
+        #[cfg(not(target_feature = "bmi1"))]
+        {
+          (blocks_below.trailing_zeros() as usize) + 1
+        }
       };
 
       // Add the floor position in the left column to the stack
@@ -232,7 +247,14 @@ fn floodfill(
       let floor_y_right = if blocks_below == 0 {
         0
       } else {
-        (blocks_below.trailing_zeros() as usize) + 1
+        #[cfg(target_feature = "bmi1")]
+        unsafe {
+          _tzcnt_u64(blocks_below) as usize + 1
+        }
+        #[cfg(not(target_feature = "bmi1"))]
+        {
+          (blocks_below.trailing_zeros() as usize) + 1
+        }
       };
 
       // Add the floor position in the right column to the stack
@@ -258,6 +280,10 @@ pub fn expand_floodfill(
     for x in 0..BOARD_WIDTH {
       let mut bits = reached[x];
       while bits != 0 && res_ptr < 512 {
+        // get lowest set bit index
+        #[cfg(target_feature = "bmi1")]
+        let y = unsafe { _tzcnt_u64(bits) as u8 };
+        #[cfg(not(target_feature = "bmi1"))]
         let y = bits.trailing_zeros() as u8;
         bits &= bits - 1;
         // only if can't move down - inline the test for O piece

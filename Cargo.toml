@@ -18,6 +18,7 @@ inherits = "release"
 debug = true
 
 [profile.release]
+target-feature = "+bmi1"
 opt-level = 3
 lto = true
 codegen-units = 1
