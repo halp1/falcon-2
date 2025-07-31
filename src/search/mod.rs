@@ -283,23 +283,9 @@ pub fn expand_floodfill(
     (max_dxs, max_dys)
   };
 
-  // Reference collision maps directly (no clone)
+  // Reference collision maps and drop table directly
   let col_masks = &state.collision_map.states;
-  // Precompute drop-to-floor: for each rotation, column and y, the floor y
-  let mut drop_table = [[[0usize; BOARD_HEIGHT + 1]; BOARD_WIDTH + 2]; 4];
-  for rot in 0..4 {
-    for x in 0..BOARD_WIDTH + 2 {
-      let mask = col_masks[rot][x];
-      for y in 0..=BOARD_HEIGHT as usize {
-        let bits_below = mask & ((1u64 << y) - 1);
-        drop_table[rot][x][y] = if bits_below == 0 {
-          0
-        } else {
-          (bits_below.trailing_zeros() as usize) + 1
-        };
-      }
-    }
-  }
+  let drop_table = &state.collision_map.drop_table;
 
   // Prepare buffers - removed unused spin_reachable
   let mut stack = [0u64; BOARD_WIDTH * BOARD_HEIGHT];
@@ -313,13 +299,8 @@ pub fn expand_floodfill(
   let unique_rots = if is_symmetric { 2 } else { 4 };
 
   for rot in 0..unique_rots {
-    // Fast drop calculation
-    let below = col_masks[rot][sx] & ((1u64 << sy) - 1);
-    let fy = if below == 0 {
-      0
-    } else {
-      below.trailing_zeros() as usize + 1
-    };
+    // Fast drop calculation using precomputed table
+    let fy = drop_table[rot][sx][sy];
 
     let reached = floodfill(&col_masks[rot], (sx, fy), &mut stack);
     explored[rot] = reached;
@@ -436,15 +417,13 @@ pub fn expand_floodfill(
         read += 1;
         let cx = (packed >> 32) as usize;
         let cy = (packed & 0xFFFF_FFFF) as usize;
+        // skip out-of-bounds y
+        if cy > BOARD_HEIGHT { continue; }
         let bit = 1u64 << cy;
         // left neighbor
-        if cx > 0 && (col_masks[rot][cx - 1] & bit) == 0 {
-          let below = col_masks[rot][cx - 1] & ((1u64 << cy) - 1);
-          let fy = if below == 0 {
-            0
-          } else {
-            (below.trailing_zeros() as usize) + 1
-          };
+            if cx > 0 && (col_masks[rot][cx - 1] & bit) == 0 {
+              // drop to floor at neighbor using table
+              let fy = drop_table[rot][cx - 1][cy];
           let nbit = 1u64 << fy;
           if visited[cx - 1] & nbit == 0 {
             visited[cx - 1] |= nbit;
@@ -453,13 +432,8 @@ pub fn expand_floodfill(
           }
         }
         // right neighbor
-        if cx + 1 < BOARD_WIDTH + 2 && (col_masks[rot][cx + 1] & bit) == 0 {
-          let below = col_masks[rot][cx + 1] & ((1u64 << cy) - 1);
-          let fy = if below == 0 {
-            0
-          } else {
-            (below.trailing_zeros() as usize) + 1
-          };
+            if cx + 1 < BOARD_WIDTH + 2 && (col_masks[rot][cx + 1] & bit) == 0 {
+              let fy = drop_table[rot][cx + 1][cy];
           let nbit = 1u64 << fy;
           if visited[cx + 1] & nbit == 0 {
             visited[cx + 1] |= nbit;

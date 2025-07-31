@@ -67,6 +67,8 @@ pub fn print_board(board: Vec<u64>, garbage_height: u8, highlight: (Mino, Vec<(u
 #[derive(Clone, Copy, Debug)]
 pub struct CollisionMap {
   pub states: [[u64; BOARD_WIDTH + 2]; 4],
+  // precomputed drop-to-floor lookup: [rot][x][y] -> floor y
+  pub drop_table: [[[usize; BOARD_HEIGHT + 1]; BOARD_WIDTH + 2]; 4],
 }
 
 impl CollisionMap {
@@ -87,7 +89,22 @@ impl CollisionMap {
       }
     }
 
-    CollisionMap { states }
+    // build drop_table once for each rotation, column and y
+    let mut drop_table = [[[0usize; BOARD_HEIGHT + 1]; BOARD_WIDTH + 2]; 4];
+    for rot in 0..4 {
+      for x in 0..BOARD_WIDTH + 2 {
+        let mask = states[rot][x];
+        for y in 0..=BOARD_HEIGHT {
+          let bits_below = mask & ((1u64 << y) - 1);
+          drop_table[rot][x][y] = if bits_below == 0 {
+            0
+          } else {
+            (bits_below.trailing_zeros() as usize) + 1
+          };
+        }
+      }
+    }
+    CollisionMap { states, drop_table }
   }
 
   pub fn test(&self, x: u8, y: u8, rot: u8) -> bool {

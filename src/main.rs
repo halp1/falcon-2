@@ -84,7 +84,7 @@ pub mod tests {
     let config = &config;
 
     let mut avg_time = 0f32;
-    let iters = 10000;
+    let iters = 100000;
 
     // let passed = &mut [0u64; 2048];
     let passed = &mut [0u64; BOARD_WIDTH * BOARD_HEIGHT];
