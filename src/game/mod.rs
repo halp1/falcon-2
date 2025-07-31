@@ -9,8 +9,8 @@ mod garbage;
 pub mod queue;
 pub mod rng;
 
-pub const BOARD_WIDTH: usize = 4;
-pub const BOARD_HEIGHT: usize = 46;
+pub const BOARD_WIDTH: usize = 10;
+pub const BOARD_HEIGHT: usize = 40;
 pub const BOARD_BUFFER: usize = 20;
 
 pub const BOARD_UPPER_HALF: usize = BOARD_HEIGHT / 2;
@@ -343,11 +343,13 @@ impl Board {
       .iter()
       .enumerate()
       .map(|(index, &height)| {
-        if ((if index == 0 { 63 } else { heights[index - 1] }).min(if index == BOARD_WIDTH - 1 {
-          63
-        } else {
-          heights[index + 1]
-        }).saturating_sub(height))
+        if ((if index == 0 { 63 } else { heights[index - 1] })
+          .min(if index == BOARD_WIDTH - 1 {
+            63
+          } else {
+            heights[index + 1]
+          })
+          .saturating_sub(height))
           >= 3
         {
           1
@@ -356,7 +358,7 @@ impl Board {
         }
       })
       .sum::<u32>() as i32
-      - 1)	
+      - 1)
       .max(0)
   }
 }
@@ -378,7 +380,7 @@ impl Falling {
 #[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GameConfig {
-	pub kicks: KickTable,
+  pub kicks: KickTable,
   pub spins: Spins,
   pub b2b_charging: bool,
   pub b2b_charge_at: i16,
@@ -445,6 +447,9 @@ impl Game {
     let mut b = self.board.clone();
     let mut falling_target = Vec::new();
     for &(x, y) in self.piece.blocks() {
+      if self.piece.x < x || self.piece.y < y {
+        continue;
+      }
       b.set((self.piece.x - x) as usize, (self.piece.y - y) as usize);
       falling_target.push((self.piece.x - x, self.piece.y - y));
     }
@@ -666,9 +671,9 @@ impl Game {
     if let Some(hold) = self.hold {
       self.hold = Some(self.piece.mino);
       self.piece.mino = hold;
-			let tetromino = self.piece.mino.data();
-			self.piece.x = ((BOARD_WIDTH + tetromino.w as usize) / 2) as u8 - 1;
-      self.piece.y =  (BOARD_HEIGHT - BOARD_BUFFER) as u8 + 2;
+      let tetromino = self.piece.mino.data();
+      self.piece.x = ((BOARD_WIDTH + tetromino.w as usize) / 2) as u8 - 1;
+      self.piece.y = (BOARD_HEIGHT - BOARD_BUFFER) as u8 + 2;
     } else {
       assert!(self.queue_ptr < self.queue.len(), "Queue is empty");
       self.hold = Some(self.piece.mino);
@@ -703,7 +708,7 @@ impl Game {
   }
 
   pub fn hard_drop(&mut self, config: &GameConfig) -> (u16, Option<Spin>) {
-		// println!("HARD DROP {} {} {} {}", self.piece.mino.str(), self.piece.x, self.piece.y, self.piece.rot);
+    // println!("HARD DROP {} {} {} {}", self.piece.mino.str(), self.piece.x, self.piece.y, self.piece.rot);
     self.soft_drop();
 
     let blocks = self.piece.blocks();
@@ -712,14 +717,32 @@ impl Game {
     let mut min_y = blocks[0].1;
 
     for &(x, y) in blocks {
-			if !(self.piece.x >= x) {
-				println!("{} {} {} {}", self.piece.x, self.piece.y, self.piece.rot, self.piece.mino.block_str());
-				for &(x, y) in blocks {
-					println!("{} {}", x, y);
-				}
-			}
-			assert!(self.piece.x >= x, "x fail: {} {} {}", self.piece.x, x, self.piece.mino.block_str());
-			assert!(self.piece.y >= y, "y fail: {} {} {}", self.piece.y, y, self.piece.mino.block_str());
+      if !(self.piece.x >= x) {
+        println!(
+          "{} {} {} {}",
+          self.piece.x,
+          self.piece.y,
+          self.piece.rot,
+          self.piece.mino.block_str()
+        );
+        for &(x, y) in blocks {
+          println!("{} {}", x, y);
+        }
+      }
+      assert!(
+        self.piece.x >= x,
+        "x fail: {} {} {}",
+        self.piece.x,
+        x,
+        self.piece.mino.block_str()
+      );
+      assert!(
+        self.piece.y >= y,
+        "y fail: {} {} {}",
+        self.piece.y,
+        y,
+        self.piece.mino.block_str()
+      );
       self
         .board
         .set((self.piece.x - x) as usize, (self.piece.y - y) as usize);

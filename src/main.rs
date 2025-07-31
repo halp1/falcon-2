@@ -18,13 +18,13 @@ mod protocol;
 fn main() {
   // futures::executor::block_on(protocol::start_server());
 
-  tests::test_play();
+  tests::test_expansion();
 }
 
 pub mod tests {
   use super::*;
   use crate::{
-    game::{data::{KickTable, Mino}, print_board, Game},
+    game::{data::{KickTable, Mino}, print_board, Game, BOARD_HEIGHT, BOARD_WIDTH},
     search::eval::{WEIGHTS_4W, WEIGHTS_HANDTUNED},
   };
 
@@ -43,7 +43,7 @@ pub mod tests {
       garbage_special_bonus: true,
     };
 
-    let mut queue = Queue::new(Bag::Bag7, rand::random::<u64>(), 32, Vec::from([]));
+    let mut queue = Queue::new(Bag::Bag7, rand::random::<u64>(), 32, vec![Mino::Z]);
     // let mut queue = Queue::new(Bag::Bag7, 2, 32, Vec::from([]));
 
     let game = game::Game::new(queue.shift(), queue.get_front_32());
@@ -84,15 +84,16 @@ pub mod tests {
     let config = &config;
 
     let mut avg_time = 0f32;
-    let iters = 100000;
+    let iters = -4;
 
-    let passed = &mut [0u64; 2048];
+    // let passed = &mut [0u64; 2048];
+    let passed = &mut [0u64; BOARD_WIDTH * BOARD_HEIGHT];
     let res = &mut [(0, 0, 0, Spin::None); 512];
 
     for i in 0..iters + 5 {
       let mut g = game.clone();
       let start = Instant::now();
-      let r = search::expand(&mut g, config, passed, res);
+      let r = search::expand_floodfill(&mut g, config, passed, res);
       let duration = start.elapsed();
       if i == iters + 5 - 1 {
         println!(
@@ -136,11 +137,12 @@ pub mod tests {
     let (config, _, mut game) = init();
     let config = &config;
 
-    let iters = 1000000;
+    let iters = 10000000;
 
     let mut nodes = 0;
 
-    let passed = &mut [0u64; 2048];
+    // let passed = &mut [0u64; 2048];
+    let passed = &mut [0u64; BOARD_WIDTH * BOARD_HEIGHT];
     let res = &mut [(0, 0, 0, Spin::None); 512];
 
     let start = Instant::now();
@@ -152,7 +154,7 @@ pub mod tests {
       game.piece.y = y;
       game.piece.rot = rot;
       game.spin = spin;
-      let r = search::expand(&mut game, config, passed, res);
+      let r = search::expand_floodfill(&mut game, config, passed, res);
       nodes += r.1;
     }
 
@@ -210,10 +212,6 @@ pub mod tests {
 		
 		let mut max_combo = -1;
 
-		game.board.set(0, 0);
-		game.board.set(1, 0);
-		game.board.set(3, 0);
-
 
     loop {
       count += 1;
@@ -224,7 +222,7 @@ pub mod tests {
         game.queue
       );
       let start = Instant::now();
-      let res = search::astar_search(game.clone(), config, 28, &WEIGHTS_4W);
+      let res = search::beam_search(game.clone(), config, 10, &WEIGHTS_HANDTUNED);
       let elapsed = start.elapsed();
       if res.is_none() {
         println!("NO SOLUTION FOUND");
