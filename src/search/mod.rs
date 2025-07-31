@@ -285,6 +285,21 @@ pub fn expand_floodfill(
 
   // Reference collision maps directly (no clone)
   let col_masks = &state.collision_map.states;
+  // Precompute drop-to-floor: for each rotation, column and y, the floor y
+  let mut drop_table = [[[0usize; BOARD_HEIGHT + 1]; BOARD_WIDTH + 2]; 4];
+  for rot in 0..4 {
+    for x in 0..BOARD_WIDTH + 2 {
+      let mask = col_masks[rot][x];
+      for y in 0..=BOARD_HEIGHT as usize {
+        let bits_below = mask & ((1u64 << y) - 1);
+        drop_table[rot][x][y] = if bits_below == 0 {
+          0
+        } else {
+          (bits_below.trailing_zeros() as usize) + 1
+        };
+      }
+    }
+  }
 
   // Prepare buffers - removed unused spin_reachable
   let mut stack = [0u64; BOARD_WIDTH * BOARD_HEIGHT];
