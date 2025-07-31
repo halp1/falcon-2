@@ -418,12 +418,14 @@ pub fn expand_floodfill(
         let cx = (packed >> 32) as usize;
         let cy = (packed & 0xFFFF_FFFF) as usize;
         // skip out-of-bounds y
-        if cy > BOARD_HEIGHT { continue; }
+        if cy > BOARD_HEIGHT {
+          continue;
+        }
         let bit = 1u64 << cy;
         // left neighbor
-            if cx > 0 && (col_masks[rot][cx - 1] & bit) == 0 {
-              // drop to floor at neighbor using table
-              let fy = drop_table[rot][cx - 1][cy];
+        if cx > 0 && (col_masks[rot][cx - 1] & bit) == 0 {
+          // drop to floor at neighbor using table
+          let fy = drop_table[rot][cx - 1][cy];
           let nbit = 1u64 << fy;
           if visited[cx - 1] & nbit == 0 {
             visited[cx - 1] |= nbit;
@@ -432,8 +434,8 @@ pub fn expand_floodfill(
           }
         }
         // right neighbor
-            if cx + 1 < BOARD_WIDTH + 2 && (col_masks[rot][cx + 1] & bit) == 0 {
-              let fy = drop_table[rot][cx + 1][cy];
+        if cx + 1 < BOARD_WIDTH + 2 && (col_masks[rot][cx + 1] & bit) == 0 {
+          let fy = drop_table[rot][cx + 1][cy];
           let nbit = 1u64 << fy;
           if visited[cx + 1] & nbit == 0 {
             visited[cx + 1] |= nbit;
