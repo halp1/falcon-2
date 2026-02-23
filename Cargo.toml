@@ -5,13 +5,11 @@ edition = "2024"
 
 [dependencies]
 arrayvec = "0.7.6"
-bitvec = "1.0.1"
 futures = "0.3.31"
 rand = "0.9.1"
 rayon = "1.10.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
-tinyset = "0.5.2"
 
 [profile.profiling]
 inherits = "release"
