@@ -24,14 +24,18 @@ fn main() {
 pub mod tests {
   use super::*;
   use crate::{
-    game::{data::{KickTable, Mino}, print_board, Game, BOARD_HEIGHT, BOARD_WIDTH},
+    game::{
+      BOARD_HEIGHT, BOARD_WIDTH, Game,
+      data::{KickTable, Mino},
+      print_board,
+    },
     search::eval::{WEIGHTS_4W, WEIGHTS_HANDTUNED},
   };
 
   pub fn init() -> (game::GameConfig, Queue, Game) {
     let config = game::GameConfig {
-			kicks: KickTable::SRSX,
-      spins: Spins::MiniPlus,
+      kicks: KickTable::SRSX,
+      spins: Spins::Handheld,
       b2b_chaining: false,
       b2b_charging: true,
       b2b_charge_at: 0,
@@ -51,6 +55,34 @@ pub mod tests {
     (config, queue, game)
   }
 
+  pub fn test_spins() {
+    let (config, _, _) = init();
+
+    let mut queue = Queue::new(Bag::Bag7, 0, 32, Vec::from([Mino::T]));
+
+    let mut game = game::Game::new(queue.shift(), queue.get_front_32());
+    println!("{}", game.piece.y);
+
+    let points = [(0, 0), (1, 0), (2, 0)];
+
+    for point in points.iter() {
+      game.board.set(point.0, point.1);
+    }
+
+    game.regen_collision_map();
+
+    println!("Initial board:");
+    game.print();
+
+    game.move_right();
+    game.soft_drop();
+    game.rotate(3, &config);
+
+    println!("{:?}", game.spin);
+
+    game.print();
+  }
+
   pub fn test_game() {
     let (config, _, _) = init();
 
@@ -58,25 +90,34 @@ pub mod tests {
 
     let mut game = game::Game::new(queue.shift(), queue.get_front_32());
 
-    let points = [(0, 0), (1, 0), (2, 0), (0, 1), (0, 2), (0, 3), (1, 3), (1, 4)];
+    let points = [
+      (0, 0),
+      (1, 0),
+      (2, 0),
+      (0, 1),
+      (0, 2),
+      (0, 3),
+      (1, 3),
+      (1, 4),
+    ];
 
-		for point in points.iter() {
-			game.board.set(point.0, point.1);
-		}
+    for point in points.iter() {
+      game.board.set(point.0, point.1);
+    }
 
-		game.regen_collision_map();
+    game.regen_collision_map();
 
-		println!("Initial board:");
-		game.print();
+    println!("Initial board:");
+    game.print();
 
-		let keys = get_keys(game.clone(), &config, (4, 2, 3, Spin::Mini));
-		println!("Keys: {:?}", keys);
+    let keys = get_keys(game.clone(), &config, (4, 2, 3, Spin::Mini));
+    println!("Keys: {:?}", keys);
 
-		for key in keys.iter() {
-			key.run(&mut game, &config);
-			println!("After key: {:?}", key);
-			game.print();
-		}
+    for key in keys.iter() {
+      key.run(&mut game, &config);
+      println!("After key: {:?}", key);
+      game.print();
+    }
   }
 
   pub fn test_expansion() {
@@ -84,16 +125,16 @@ pub mod tests {
     let config = &config;
 
     let mut avg_time = 0f32;
-    let iters = 10000;
+    let iters = 100_000_00;
 
-    // let passed = &mut [0u64; 2048];
-    let passed = &mut [0u64; BOARD_WIDTH * BOARD_HEIGHT];
+    let passed = &mut [0u64; 2048];
+    // let passed = &mut [0u64; BOARD_WIDTH * BOARD_HEIGHT];
     let res = &mut [(0, 0, 0, Spin::None); 512];
 
     for i in 0..iters + 5 {
       let mut g = game.clone();
       let start = Instant::now();
-      let r = search::expand_floodfill(&mut g, config, passed, res);
+      let r = search::expand(&mut g, config, passed, res);
       let duration = start.elapsed();
       if i == iters + 5 - 1 {
         println!(
@@ -129,6 +170,7 @@ pub mod tests {
       }
     }
 
+    println!("NPS: {:?}", (iters as f32) / avg_time);
     avg_time /= iters as f32;
     println!("Average search time: {:?}us", avg_time * 1_000_000.0);
   }
@@ -209,9 +251,8 @@ pub mod tests {
 
     let mut count = 0;
     let mut attack = 0;
-		
-		let mut max_combo = -1;
 
+    let mut max_combo = -1;
 
     loop {
       count += 1;
@@ -290,8 +331,8 @@ pub mod tests {
       println!("TIME: {}ms", elapsed.as_secs_f32() * 1000.0);
       println!("APP: {:.2}", attack as f32 / count as f32);
 
-			max_combo = std::cmp::max(max_combo, game.combo);
-			println!("MAX COMBO: {}", max_combo);
+      max_combo = std::cmp::max(max_combo, game.combo);
+      println!("MAX COMBO: {}", max_combo);
 
       if game.topped_out() {
         break;

@@ -1,6 +1,3 @@
-use core::fmt;
-use std::fmt::Formatter;
-
 use serde::{Deserialize, Serialize};
 
 use super::{Game, GameConfig};
@@ -36,6 +33,7 @@ pub struct TetrominoMatrix {
 }
 
 impl Mino {
+  #[inline(always)]
   pub fn data(&self) -> &TetrominoMatrix {
     match self {
       Mino::I => &TETROMINO_I,
@@ -48,6 +46,7 @@ impl Mino {
     }
   }
 
+  #[inline(always)]
   pub fn rot(&self, rot: u8) -> &[(u8, u8); 4] {
     debug_assert!(rot < 4, "Invalid rotation index: {}", rot);
 
@@ -63,6 +62,21 @@ impl Mino {
       Mino::Z => &TETROMINO_Z.rots[rot],
     }
   }
+
+	#[inline(always)]
+	pub fn corner_table(&self, rot: u8) -> Option<&CornerTable> {
+    debug_assert!(rot < 4, "Invalid rotation index: {}", rot);
+
+		match self {
+			Mino::I => None,
+			Mino::J => Some(&CORNERTABLE_J),
+			Mino::L => Some(&CORNERTABLE_L),
+			Mino::O => None,
+			Mino::S => Some(&CORNERTABLE_S),
+			Mino::T => Some(&CORNERTABLE_T),
+			Mino::Z => Some(&CORNERTABLE_Z),
+		}
+	}
 
   pub fn str(&self) -> &str {
     match self {
@@ -147,13 +161,152 @@ pub const TETROMINO_S: TetrominoMatrix = TetrominoMatrix {
   ],
 };
 
+
+
+pub type CornerTable = [[((i8, i8), Option<(u8, u8)>); 4]; 4];
+
+pub const CORNERTABLE_Z: CornerTable = [
+  [
+    ((4, 1), None),
+    ((1, 1), None),
+    ((0, 0), None),
+    ((3, 0), None),
+  ],
+  [
+    ((2, 1), None),
+    ((1, 2), None),
+    ((2, -2), None),
+    ((1, -1), None),
+  ],
+  [
+    ((4, 0), None),
+    ((1, 0), None),
+    ((0, -1), None),
+    ((3, -1), None),
+  ],
+  [
+    ((3, 1), None),
+    ((2, 2), None),
+    ((2, -1), None),
+    ((3, -2), None),
+  ],
+];
+
+pub const CORNERTABLE_L: CornerTable = [
+  [
+    ((3, 1), None),
+    ((2, 1), None),
+    ((1, -1), None),
+    ((3, -1), None),
+  ],
+  [
+    ((3, 1), None),
+    ((1, 1), None),
+    ((1, 0), None),
+    ((3, -1), None),
+  ],
+  [
+    ((3, 1), None),
+    ((1, 1), None),
+    ((1, -1), None),
+    ((2, -1), None),
+  ],
+  [
+    ((3, 0), None),
+    ((1, 1), None),
+    ((1, -1), None),
+    ((3, -1), None),
+  ],
+];
+
+pub const CORNERTABLE_S: CornerTable = [
+  [
+    ((3, 1), None),
+    ((0, 1), None),
+    ((1, 0), None),
+    ((4, 0), None),
+  ],
+  [
+    ((2, 2), None),
+    ((1, 1), None),
+    ((1, -2), None),
+    ((2, -1), None),
+  ],
+  [
+    ((3, 0), None),
+    ((0, 0), None),
+    ((1, -1), None),
+    ((4, -1), None),
+  ],
+  [
+    ((3, 2), None),
+    ((2, 1), None),
+    ((3, -1), None),
+    ((2, -2), None),
+  ],
+];
+
+pub const CORNERTABLE_J: CornerTable = [
+  [
+    ((2, 1), None),
+    ((1, 1), None),
+    ((1, -1), None),
+    ((3, -1), None),
+  ],
+  [
+    ((3, 1), None),
+    ((1, 0), None),
+    ((1, -1), None),
+    ((3, -1), None),
+  ],
+  [
+    ((3, 1), None),
+    ((1, 1), None),
+    ((2, -1), None),
+    ((3, -1), None),
+  ],
+  [
+    ((3, 1), None),
+    ((1, 1), None),
+    ((1, -1), None),
+    ((3, 0), None),
+  ],
+];
+
+pub const CORNERTABLE_T: CornerTable = [
+  [
+    ((3, 1), Some((3, 0))),
+    ((1, 1), Some((0, 1))),
+    ((1, -1), Some((1, 2))),
+    ((3, -1), Some((2, 3))),
+  ],
+  [
+    ((3, 1), Some((3, 0))),
+    ((1, 1), Some((0, 1))),
+    ((1, -1), Some((1, 2))),
+    ((3, -1), Some((2, 3))),
+  ],
+  [
+    ((3, 1), Some((3, 0))),
+    ((1, 1), Some((0, 1))),
+    ((1, -1), Some((1, 2))),
+    ((3, -1), Some((2, 3))),
+  ],
+  [
+    ((3, 1), Some((3, 0))),
+    ((1, 1), Some((0, 1))),
+    ((1, -1), Some((1, 2))),
+    ((3, -1), Some((2, 3))),
+  ],
+];
+
 #[derive(Deserialize, Clone)]
 pub enum KickTable {
-	#[serde(rename = "SRS")]
+  #[serde(rename = "SRS")]
   SRS,
-	#[serde(rename = "SRS+")]
+  #[serde(rename = "SRS+")]
   SRSPlus,
-	#[serde(rename = "SRS-X")]
+  #[serde(rename = "SRS-X")]
   SRSX,
 }
 
@@ -165,10 +318,12 @@ const INDEX_LOOKUP_TABLE: [[u8; 4]; 4] = [
 ];
 
 impl KickTable {
+  #[inline(always)]
   pub fn get_index(from: u8, to: u8) -> usize {
     INDEX_LOOKUP_TABLE[from as usize][to as usize] as usize
   }
 
+  #[inline(always)]
   pub fn data(&self, mino: Mino, from: u8, to: u8) -> &[(i8, i8); 11] {
     let kick_table = match self {
       KickTable::SRS => &SRS_KICKS,
@@ -1198,7 +1353,7 @@ pub enum ComboTable {
 
 impl ComboTable {
   pub fn get(&self) -> &[u8] {
-    assert_ne!(
+    debug_assert_ne!(
       *self,
       ComboTable::Multiplier,
       "Multiplier combo table is not defined"

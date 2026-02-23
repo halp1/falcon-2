@@ -9,8 +9,8 @@ mod garbage;
 pub mod queue;
 pub mod rng;
 
-pub const BOARD_WIDTH: usize = 10;
-pub const BOARD_HEIGHT: usize = 40;
+pub const BOARD_WIDTH: usize = 4;
+pub const BOARD_HEIGHT: usize = 46;
 pub const BOARD_BUFFER: usize = 20;
 
 pub const BOARD_UPPER_HALF: usize = BOARD_HEIGHT / 2;
@@ -476,7 +476,7 @@ impl Game {
         .test(self.piece.x - 1, self.piece.y, self.piece.rot)
   }
 
-  // Returns (success, spin, tst_or_fin)
+  // Returns (success, kicked)
   pub fn rotate(&mut self, amount: u8, config: &GameConfig) -> (bool, bool) {
     let to = (self.piece.rot + amount) % 4;
 
@@ -490,7 +490,7 @@ impl Game {
     if res.0 == false {
       let from = self.piece.rot;
 
-      let kickset = KickTable::SRSPlus.data(self.piece.mino, from, to);
+      let kickset = config.kicks.data(self.piece.mino, from, to);
 
       for &(dx, dy) in kickset.iter() {
         if !self.collision_map.test(
@@ -524,78 +524,148 @@ impl Game {
     }
 
     let t_status = if self.piece.mino == Mino::T {
-      if is_tst_or_fin {
-        Spin::Normal
-      } else {
-        self.detect_t_spin()
-      }
+      self.detect_spin(is_tst_or_fin)
     } else {
       Spin::None
     };
 
-    if t_status != Spin::None
-      || config.spins == Spins::T
-      || config.spins == Spins::Mini
-      || config.spins == Spins::All
-    {
-      self.spin = t_status;
-      return;
-    }
+    let immobile = match config.spins {
+      Spins::All | Spins::AllPlus | Spins::Mini | Spins::MiniPlus | Spins::MiniOnly => {
+        self.is_immobile()
+      }
+      _ => false,
+    };
 
-    let immobile = self.is_immobile();
-
-    // if immobile {
-    // 	println!("IMMOBILE SPIN FOUND FOR {} {} {} {}", self.piece.mino.str(), self.piece.x, self.piece.y, self.piece.rot);
-    // 	self.board.print();
-    // }
-
-    if immobile {
-      if self.piece.mino == Mino::T {
-        self.spin = Spin::Mini;
-      } else {
-        self.spin = match config.spins {
-          Spins::AllPlus | Spins::All => Spin::Normal,
-          Spins::MiniPlus | Spins::Mini => Spin::Mini,
-          _ => Spin::None,
+    self.spin = match config.spins {
+      Spins::None => Spin::None,
+      Spins::Stupid => {
+        if self
+          .collision_map
+          .test(self.piece.x, self.piece.y - 1, self.piece.rot)
+        {
+          Spin::Normal
+        } else {
+          Spin::None
         }
       }
-    } else {
-      self.spin = Spin::None;
-    }
+      Spins::T => t_status,
+      Spins::TPlus => {
+        if t_status != Spin::None {
+          t_status
+        } else if immobile && self.piece.mino == Mino::T {
+          Spin::Mini
+        } else {
+          Spin::None
+        }
+      }
+      Spins::All => {
+        if self.piece.mino == Mino::T {
+          t_status
+        } else if immobile {
+          Spin::Normal
+        } else {
+          Spin::None
+        }
+      }
+      Spins::Mini => {
+        if self.piece.mino == Mino::T {
+          t_status
+        } else if immobile {
+          Spin::Mini
+        } else {
+          Spin::None
+        }
+      }
+      Spins::AllPlus => {
+        if self.piece.mino == Mino::T {
+          if t_status != Spin::None {
+            t_status
+          } else if immobile {
+            Spin::Mini
+          } else {
+            Spin::None
+          }
+        } else {
+          if immobile { Spin::Normal } else { Spin::None }
+        }
+      }
+      Spins::MiniPlus => {
+        if self.piece.mino == Mino::T {
+          if t_status != Spin::None {
+            t_status
+          } else if immobile {
+            Spin::Mini
+          } else {
+            Spin::None
+          }
+        } else {
+          if immobile { Spin::Mini } else { Spin::None }
+        }
+      }
+      Spins::MiniOnly => {
+        if t_status != Spin::None {
+          Spin::Mini
+        } else if immobile {
+          Spin::Mini
+        } else {
+          Spin::None
+        }
+      }
+      Spins::Handheld => self.detect_spin(is_tst_or_fin),
+    };
   }
 
   #[inline(always)]
-  pub fn detect_t_spin(&self) -> Spin {
+  pub fn detect_spin(&self, is_tst_or_fin: bool) -> Spin {
     let x = self.piece.x as i8;
     let y = self.piece.y as i8;
 
-    let corners = [
-      self.board.is_occupied(x - 2, y),
-      self.board.is_occupied(x, y),
-      self.board.is_occupied(x, y - 2),
-      self.board.is_occupied(x - 2, y - 2),
-    ];
+    let table = if let Some(corner_table) = self.piece.mino.corner_table(self.piece.rot) {
+      corner_table
+    } else {
+      return Spin::None;
+    };
 
-    // println!("CORNER: {} {} {} {} {}", corners[0], corners[1], corners[2], corners[3], self.piece.mino.str());
-
-    let mut corner_count = 0;
-    for corner in corners {
-      if corner {
-        corner_count += 1;
-      }
-    }
-
-    if corner_count < 3 {
+    if !self
+      .collision_map
+      .test(x as u8, y as u8 - 1, self.piece.rot)
+    {
       return Spin::None;
     }
 
-    let rot = self.piece.rot as usize;
+		
+    let mut corners = 0u8;
+    let mut front_corners = 0u8;
+		
+    let table = table[self.piece.rot as usize];
 
-    if corners[rot] && corners[(rot + 1) % 4] {
-      return Spin::Normal;
+    for i in 0..4 {
+      if self
+        .board
+        .is_occupied(x - table[i].0.0 + 1, y - table[i].0.1 - 1)
+      {
+        corners += 1;
+        if let Some((r1, r2)) = table[i].1
+          && (self.piece.rot == r1 || self.piece.rot == r2)
+        {
+          front_corners += 1;
+        }
+      }
     }
 
-    Spin::Mini
+    if corners < 3 {
+      return Spin::None;
+    }
+
+    let mut spin = Spin::Normal;
+    if self.piece.mino == Mino::T && front_corners != 2 {
+      spin = Spin::Mini;
+    }
+    if is_tst_or_fin {
+      spin = Spin::Normal;
+    }
+
+    spin
   }
 
   pub fn move_left(&mut self) -> bool {
