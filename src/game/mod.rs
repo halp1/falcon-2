@@ -9,8 +9,8 @@ mod garbage;
 pub mod queue;
 pub mod rng;
 
-pub const BOARD_WIDTH: usize = 4;
-pub const BOARD_HEIGHT: usize = 46;
+pub const BOARD_WIDTH: usize = 10;
+pub const BOARD_HEIGHT: usize = 40;
 pub const BOARD_BUFFER: usize = 20;
 
 pub const BOARD_UPPER_HALF: usize = BOARD_HEIGHT / 2;
