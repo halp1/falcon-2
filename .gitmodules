@@ -1,0 +1,3 @@
+[submodule "triangle-rs"]
+	path = triangle-rs
+	url = ./triangle-rs
