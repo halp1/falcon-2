@@ -54,7 +54,7 @@ const MOVES: [[Move; 9]; 9] = [
   ],
   // CCW
   [
-		Move::CW, // clockwise after counter-clockwise allows for tsm
+    Move::CW, // clockwise after counter-clockwise allows for tsm
     Move::CCW,
     Move::Flip,
     Move::Left,
@@ -67,7 +67,7 @@ const MOVES: [[Move; 9]; 9] = [
   // CW
   [
     Move::CW,
-		Move::CCW, // counter-clockwise after clockwise allows for tsm
+    Move::CCW, // counter-clockwise after clockwise allows for tsm
     Move::Flip,
     Move::Left,
     Move::Right,
@@ -114,6 +114,19 @@ const MOVES: [[Move; 9]; 9] = [
   ],
 ];
 
+#[inline(always)]
+pub fn compress_blocks(blocks: &[(u8, u8); 4]) -> [u64; 7] {
+  let mut res = [0u64; 7];
+
+  for &(x, y) in blocks {
+    let idx = (y / 4) as usize;
+    let bit = 1u64 << ((x * 4 + (y % 4)) as u64);
+    res[idx] |= bit;
+  }
+
+  res
+}
+
 pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)) -> Vec<Move> {
   let mut passed = [0u64; 1024];
 
@@ -127,6 +140,8 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
     .mino
     .rot(target.2)
     .map(|block| (target.0 - block.0, target.1 - block.1));
+
+  let target_compressed = compress_blocks(&target_blocks);
 
   let tgt_2 = target.2 % 2;
 
@@ -148,37 +163,24 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
       if mv == Move::None {
         break;
       }
-      // Don't do these checks, because running the checks is more expensive
-      // if (last == Move::CCW && mv == Move::CW)
-      //     || (last == Move::CW && mv == Move::CCW)
-      //     || (last == Move::Flip && mv == Move::Flip)
-      //     || (last == Move::Left && mv == Move::Right)
-      //     || (last == Move::Right && mv == Move::Left)
-      //     || (last == Move::SoftDrop && mv == Move::SoftDrop)
-      // {
-      //     continue;
-      // }
+      
 
+      state.spin = spin;
       state.piece.x = x;
       state.piece.y = y;
       state.piece.rot = rot;
-      state.spin = spin;
 
       let fail = !mv.run(&mut state, config);
 
       if mv == Move::HardDrop {
         if state.piece.rot % 2 == tgt_2
           && state.spin == target.3
-          && state
-            .piece
-            .blocks()
-            .map(|block| (state.piece.x - block.0, state.piece.y - block.1))
-            .iter()
-            .all(|block| {
-              target_blocks
-                .iter()
-                .any(|tgt| block.0 == tgt.0 && block.1 == tgt.1)
-            })
+          && compress_blocks(
+            &state
+              .piece
+              .blocks()
+              .map(|block| (state.piece.x - block.0, state.piece.y - block.1)),
+          ) == target_compressed
         {
           return Vec::from(&moves.0[0..moves.1])
             .into_iter()

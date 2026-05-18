@@ -1,7 +1,11 @@
 [package]
-name = "falcon-2"
+name = "falcon"
 version = "0.1.0"
 edition = "2024"
+
+[lib]
+name = "falcon"
+path = "src/lib.rs"
 
 [dependencies]
 arrayvec = "0.7.6"

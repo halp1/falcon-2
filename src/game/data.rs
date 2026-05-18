@@ -1367,7 +1367,7 @@ impl ComboTable {
   }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[repr(u8)]
 pub enum Move {
   #[serde(rename = "none")]

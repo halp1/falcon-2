@@ -12,7 +12,7 @@ use crate::{
   keyfinder,
   search::{
     beam_search,
-    eval::{WEIGHTS_4W, WEIGHTS_HANDTUNED},
+    eval::{WEIGHTS_HANDTUNED},
   },
 };
 

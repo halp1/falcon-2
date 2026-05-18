@@ -6,12 +6,11 @@ pub mod trainer;
 
 use game::{
   Game, GameConfig, Garbage,
-  data::{Move, Spin, Spins},
+  data::Move,
   queue::{Bag, Queue},
 };
 use keyfinder::get_keys;
 use search::{beam_search, eval::WEIGHTS_HANDTUNED};
-use std::time::Instant;
 
 pub struct StepResult {
   pub keys: Vec<Move>,
@@ -59,7 +58,7 @@ impl Falcon {
     self.game.garbage = garbage.into();
 
     let start_time = std::time::Instant::now();
-    let choice = beam_search(self.game.clone(), &config, 20, &WEIGHTS_HANDTUNED);
+    let choice = beam_search(self.game.clone(), &config, 5, &WEIGHTS_HANDTUNED);
     let elapsed = start_time.elapsed().as_secs_f64();
 
     if let Some(mv) = choice {
@@ -81,6 +80,11 @@ impl Falcon {
       if mv.0.3 {
         keys.insert(0, Move::Hold);
       }
+
+      self.game.print();
+      println!("B2B: {}", self.game.b2b);
+      println!("Time: {:.0}μs", elapsed * 1_000_000.0);
+      println!("-------------------------");
 
       self.game.hard_drop(&config);
 
@@ -112,6 +116,7 @@ impl Falcon {
   }
 }
 
+#[cfg(test)]
 pub mod tests {
   use super::*;
   use crate::{
