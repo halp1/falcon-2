@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
+use triangle::types::game::Spin;
 
-use crate::game::{BOARD_BUFFER, BOARD_HEIGHT, Game, data::Spin};
+use crate::engine::game::{BOARD_BUFFER, BOARD_HEIGHT, Game};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Weights {
@@ -41,23 +42,24 @@ impl Weights {
       }
     };
 
-		new_weights.height = self.height + (change_factor * get_multiplier());
-		new_weights.upper_half_height = self.upper_half_height + (change_factor * get_multiplier());
-		new_weights.upper_quarter_height = self.upper_quarter_height + (change_factor * get_multiplier());
-		new_weights.center_height = self.center_height + (change_factor * get_multiplier());
-		new_weights.extra_wells = self.extra_wells + (change_factor * get_multiplier());
-		new_weights.clear_none = self.clear_none + (change_factor * get_multiplier());
-		new_weights.clear_mini = self.clear_mini + (change_factor * get_multiplier());
-		new_weights.clear_normal = self.clear_normal + (change_factor * get_multiplier());
-		new_weights.sent = self.sent + (change_factor * get_multiplier());
-		new_weights.b2b = self.b2b + (change_factor * get_multiplier());
-		new_weights.combo = self.combo + (change_factor * get_multiplier());
-		new_weights.holes = self.holes + (change_factor * get_multiplier());
-		new_weights.covered_holes = self.covered_holes + (change_factor * get_multiplier());
-		new_weights.overstacked_holes = self.overstacked_holes + (change_factor * get_multiplier());
-		new_weights.unevenness = self.unevenness + (change_factor * get_multiplier());
+    new_weights.height = self.height + (change_factor * get_multiplier());
+    new_weights.upper_half_height = self.upper_half_height + (change_factor * get_multiplier());
+    new_weights.upper_quarter_height =
+      self.upper_quarter_height + (change_factor * get_multiplier());
+    new_weights.center_height = self.center_height + (change_factor * get_multiplier());
+    new_weights.extra_wells = self.extra_wells + (change_factor * get_multiplier());
+    new_weights.clear_none = self.clear_none + (change_factor * get_multiplier());
+    new_weights.clear_mini = self.clear_mini + (change_factor * get_multiplier());
+    new_weights.clear_normal = self.clear_normal + (change_factor * get_multiplier());
+    new_weights.sent = self.sent + (change_factor * get_multiplier());
+    new_weights.b2b = self.b2b + (change_factor * get_multiplier());
+    new_weights.combo = self.combo + (change_factor * get_multiplier());
+    new_weights.holes = self.holes + (change_factor * get_multiplier());
+    new_weights.covered_holes = self.covered_holes + (change_factor * get_multiplier());
+    new_weights.overstacked_holes = self.overstacked_holes + (change_factor * get_multiplier());
+    new_weights.unevenness = self.unevenness + (change_factor * get_multiplier());
 
-		new_weights
+    new_weights
   }
 }
 
@@ -134,8 +136,7 @@ pub fn eval(weights: &Weights, state: &Game, sent: u16, clears: Vec<Spin>) -> i3
     * weights.upper_half_height;
   score += (state.board.upper_quarter_height()) * GENERAL_MULTIPLIER / HEIGHT_QUARTER
     * weights.upper_quarter_height;
-  score +=
-    (state.board.center_height()) * GENERAL_MULTIPLIER / HEIGHT * weights.center_height;
+  score += (state.board.center_height()) * GENERAL_MULTIPLIER / HEIGHT * weights.center_height;
 
   score += (state.board.wells()) * GENERAL_MULTIPLIER * weights.extra_wells;
 
@@ -150,14 +151,12 @@ pub fn eval(weights: &Weights, state: &Game, sent: u16, clears: Vec<Spin>) -> i3
   score += sent as i32 * GENERAL_MULTIPLIER * weights.sent;
 
   // add 1 so baseline is 0
-  score +=
-    ((((state.b2b + 2) as f32).ln()) * GENERAL_MULTIPLIER_F32) as i32 * weights.b2b;
+  score += ((((state.b2b + 2) as f32).ln()) * GENERAL_MULTIPLIER_F32) as i32 * weights.b2b;
   score += (state.combo as i32 + 1) * GENERAL_MULTIPLIER * weights.combo;
 
   score += state.board.count_holes() * GENERAL_MULTIPLIER * weights.holes;
   score += state.board.covered_holes() * GENERAL_MULTIPLIER * weights.covered_holes;
-  score +=
-    state.board.overstacked_holes() * GENERAL_MULTIPLIER * weights.overstacked_holes;
+  score += state.board.overstacked_holes() * GENERAL_MULTIPLIER * weights.overstacked_holes;
 
   score += state.board.unevenness() * GENERAL_MULTIPLIER * weights.unevenness;
 

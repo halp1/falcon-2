@@ -1,6 +1,10 @@
-use crate::game::{
+use triangle::types::game::Spin;
+
+use crate::engine::game::data::MinoData;
+
+use super::game::{
   Game, GameConfig,
-  data::{Move, Spin},
+  data::{Move},
 };
 
 const MOVES: [[Move; 9]; 9] = [
@@ -232,5 +236,5 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
   println!("Initial:");
   game.print();
 
-  panic!("No move found (tgt spin: {})", target.3.str());
+  panic!("No move found (tgt spin: {})", target.3.as_str());
 }

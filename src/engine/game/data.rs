@@ -1,20 +1,24 @@
 use serde::{Deserialize, Serialize};
+use triangle::engine::{queue::Mino, utils::KickTable};
 
 use super::{Game, GameConfig};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Mino {
-  I,
-  J,
-  L,
-  O,
-  S,
-  T,
-  Z,
+pub struct TetrominoMatrix {
+  pub w: u8,
+  pub rots: [[(u8, u8); 4]; 4],
 }
 
-impl Mino {
-  pub fn block_str(&self) -> &str {
+pub trait MinoData {
+  fn block_str(&self) -> &str;
+  fn data(&self) -> &TetrominoMatrix;
+  fn rot(&self, rot: u8) -> &[(u8, u8); 4];
+  fn corner_table(&self, rot: u8) -> Option<&CornerTable>;
+  fn str(&self) -> &str;
+}
+
+impl MinoData for Mino {
+  #[inline(always)]
+  fn block_str(&self) -> &str {
     match self {
       Mino::I => "\x1b[46m  \x1b[49m",
       Mino::J => "\x1b[44m  \x1b[49m",
@@ -23,18 +27,12 @@ impl Mino {
       Mino::S => "\x1b[102m  \x1b[49m",
       Mino::T => "\x1b[105m  \x1b[49m",
       Mino::Z => "\x1b[101m  \x1b[49m",
+			_ => panic!("Invalid mino type: {:?}", self),
     }
   }
-}
 
-pub struct TetrominoMatrix {
-  pub w: u8,
-  pub rots: [[(u8, u8); 4]; 4],
-}
-
-impl Mino {
   #[inline(always)]
-  pub fn data(&self) -> &TetrominoMatrix {
+  fn data(&self) -> &TetrominoMatrix {
     match self {
       Mino::I => &TETROMINO_I,
       Mino::J => &TETROMINO_J,
@@ -43,11 +41,12 @@ impl Mino {
       Mino::S => &TETROMINO_S,
       Mino::T => &TETROMINO_T,
       Mino::Z => &TETROMINO_Z,
+			_ => panic!("Invalid mino type: {:?}", self),
     }
   }
 
   #[inline(always)]
-  pub fn rot(&self, rot: u8) -> &[(u8, u8); 4] {
+  fn rot(&self, rot: u8) -> &[(u8, u8); 4] {
     debug_assert!(rot < 4, "Invalid rotation index: {}", rot);
 
     let rot = rot as usize;
@@ -60,25 +59,27 @@ impl Mino {
       Mino::S => &TETROMINO_S.rots[rot],
       Mino::T => &TETROMINO_T.rots[rot],
       Mino::Z => &TETROMINO_Z.rots[rot],
+			_ => panic!("Invalid mino type: {:?}", self),
     }
   }
 
-	#[inline(always)]
-	pub fn corner_table(&self, rot: u8) -> Option<&CornerTable> {
+  #[inline(always)]
+  fn corner_table(&self, rot: u8) -> Option<&CornerTable> {
     debug_assert!(rot < 4, "Invalid rotation index: {}", rot);
 
-		match self {
-			Mino::I => None,
-			Mino::J => Some(&CORNERTABLE_J),
-			Mino::L => Some(&CORNERTABLE_L),
-			Mino::O => None,
-			Mino::S => Some(&CORNERTABLE_S),
-			Mino::T => Some(&CORNERTABLE_T),
-			Mino::Z => Some(&CORNERTABLE_Z),
-		}
-	}
+    match self {
+      Mino::I => None,
+      Mino::J => Some(&CORNERTABLE_J),
+      Mino::L => Some(&CORNERTABLE_L),
+      Mino::O => None,
+      Mino::S => Some(&CORNERTABLE_S),
+      Mino::T => Some(&CORNERTABLE_T),
+      Mino::Z => Some(&CORNERTABLE_Z),
+			_ => panic!("Invalid mino type: {:?}", self),
+    }
+  }
 
-  pub fn str(&self) -> &str {
+  fn str(&self) -> &str {
     match self {
       Mino::I => "I",
       Mino::J => "J",
@@ -87,6 +88,7 @@ impl Mino {
       Mino::S => "S",
       Mino::T => "T",
       Mino::Z => "Z",
+			_ => panic!("Invalid mino type: {:?}", self),
     }
   }
 }
@@ -160,8 +162,6 @@ pub const TETROMINO_S: TetrominoMatrix = TetrominoMatrix {
     [(2, 0), (2, 1), (1, 1), (1, 2)],
   ],
 };
-
-
 
 pub type CornerTable = [[((i8, i8), Option<(u8, u8)>); 4]; 4];
 
@@ -300,16 +300,6 @@ pub const CORNERTABLE_T: CornerTable = [
   ],
 ];
 
-#[derive(Deserialize, Clone)]
-pub enum KickTable {
-  #[serde(rename = "SRS")]
-  SRS,
-  #[serde(rename = "SRS+")]
-  SRSPlus,
-  #[serde(rename = "SRS-X")]
-  SRSX,
-}
-
 const INDEX_LOOKUP_TABLE: [[u8; 4]; 4] = [
   [255, 0, 8, 7],
   [1, 255, 2, 9],
@@ -317,18 +307,24 @@ const INDEX_LOOKUP_TABLE: [[u8; 4]; 4] = [
   [6, 11, 5, 255],
 ];
 
-impl KickTable {
+pub trait KickTableData {
+  fn get_index(from: u8, to: u8) -> usize;
+  fn data_fast(&self, mino: Mino, from: u8, to: u8) -> &[(i8, i8); 11];
+}
+
+impl KickTableData for KickTable {
   #[inline(always)]
-  pub fn get_index(from: u8, to: u8) -> usize {
+  fn get_index(from: u8, to: u8) -> usize {
     INDEX_LOOKUP_TABLE[from as usize][to as usize] as usize
   }
 
   #[inline(always)]
-  pub fn data(&self, mino: Mino, from: u8, to: u8) -> &[(i8, i8); 11] {
+  fn data_fast(&self, mino: Mino, from: u8, to: u8) -> &[(i8, i8); 11] {
     let kick_table = match self {
       KickTable::SRS => &SRS_KICKS,
       KickTable::SRSPlus => &SRS_PLUS_KICKS,
       KickTable::SRSX => &SRS_X_KICKS,
+      _ => panic!("Unsupported kick table: {:?}", self),
     };
     match mino {
       Mino::I => &kick_table.i[KickTable::get_index(from, to)],
@@ -1299,75 +1295,7 @@ pub const SRS_X_KICKS: KickData = KickData {
   ],
 };
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Spin {
-  None,
-  Mini,
-  Normal,
-}
-
-impl Spin {
-  pub fn str(&self) -> &str {
-    match self {
-      Spin::None => "none",
-      Spin::Mini => "mini",
-      Spin::Normal => "normal",
-    }
-  }
-}
-
-#[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
-pub enum Spins {
-  None,
-  #[serde(rename = "T-spins")]
-  T,
-  #[serde(rename = "T-spins+")]
-  TPlus,
-  #[serde(rename = "all-mini")]
-  Mini,
-  #[serde(rename = "all-mini+")]
-  MiniPlus,
-  #[serde(rename = "all")]
-  All,
-  #[serde(rename = "all+")]
-  AllPlus,
-  #[serde(rename = "mini-only")]
-  MiniOnly,
-  #[serde(rename = "handheld")]
-  Handheld,
-  #[serde(rename = "stupid")]
-  Stupid,
-}
-
-#[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
-pub enum ComboTable {
-  #[serde(rename = "none")]
-  None,
-  #[serde(rename = "classic-guideline")]
-  Classic,
-  #[serde(rename = "modern-guideline")]
-  Modern,
-  #[serde(rename = "multiplier")]
-  Multiplier,
-}
-
-impl ComboTable {
-  pub fn get(&self) -> &[u8] {
-    debug_assert_ne!(
-      *self,
-      ComboTable::Multiplier,
-      "Multiplier combo table is not defined"
-    );
-    match self {
-      ComboTable::None => &[0],
-      ComboTable::Classic => &[0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5],
-      ComboTable::Modern => &[0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3, 3, 4],
-      ComboTable::Multiplier => unreachable!("Multiplier combo table is not defined"),
-    }
-  }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum Move {
   #[serde(rename = "none")]

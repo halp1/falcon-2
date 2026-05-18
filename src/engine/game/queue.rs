@@ -1,12 +1,13 @@
 use std::collections::VecDeque;
 
 use serde::Deserialize;
+use triangle::engine::queue::Mino;
 
-use super::{data::Mino, rng::RNG};
+use super::rng::RNG;
 
 #[derive(Deserialize, Clone, Copy, Debug)]
 pub enum Bag {
-	#[serde(rename = "7-bag")]
+  #[serde(rename = "7-bag")]
   Bag7,
 }
 
@@ -41,9 +42,9 @@ impl Queue {
 
     let mut queue: VecDeque<Mino> = VecDeque::with_capacity(min_size + 7);
 
-		for m in initial.iter() {
-			queue.push_back(*m);
-		}
+    for m in initial.iter() {
+      queue.push_back(*m);
+    }
 
     while queue.len() < min_size {
       for mino in rng.shuffle(bag.get_cycle()) {
@@ -60,7 +61,10 @@ impl Queue {
   }
 
   pub fn shift(&mut self) -> Mino {
-    let res = self.queue.pop_front().unwrap_or_else(|| unreachable!("Queue is empty!"));
+    let res = self
+      .queue
+      .pop_front()
+      .unwrap_or_else(|| unreachable!("Queue is empty!"));
 
     while self.queue.len() < self.min_size {
       for mino in self.rng.shuffle(self.bag.get_cycle()) {

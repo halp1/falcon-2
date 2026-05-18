@@ -1,4 +1,4 @@
-use super::data::{ComboTable, Spin};
+use triangle::types::game::{ComboTable, Spin};
 
 pub fn damage_calc(
   lines: u8,
@@ -44,7 +44,7 @@ pub fn damage_calc(
         g1
       }
     } else {
-      let t = combo_table.get();
+      let t = combo_table.data();
       damage + t[(combo - 1).clamp(0, t.len() as i16 - 1) as usize] as f32
     }
   } else {

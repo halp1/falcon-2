@@ -3,24 +3,25 @@ name = "falcon"
 version = "0.1.0"
 edition = "2024"
 
-[lib]
-name = "falcon"
-path = "src/lib.rs"
-
 [dependencies]
 arrayvec = "0.7.6"
+dotenvy = "0.15.7"
 futures = "0.3.31"
+parking_lot = "0.12.5"
 rand = "0.9.1"
 rayon = "1.10.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
+tokio = "1.52.3"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+triangle-rs = { path = "./triangle-rs" }
 
 [profile.profiling]
 inherits = "release"
 debug = true
 
 [profile.release]
-target-feature = "+bmi1"
 opt-level = 3
 lto = true
 codegen-units = 1

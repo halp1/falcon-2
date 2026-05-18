@@ -1,6 +1,5 @@
 pub mod game;
 pub mod keyfinder;
-pub mod protocol;
 pub mod search;
 pub mod trainer;
 
@@ -118,27 +117,27 @@ impl Falcon {
 
 #[cfg(test)]
 pub mod tests {
+  use std::time::Instant;
+
   use super::*;
-  use crate::{
-    game::{
-      BOARD_HEIGHT, BOARD_WIDTH, Game,
-      data::{KickTable, Mino},
-      print_board,
-    },
-    search::eval::{WEIGHTS_4W, WEIGHTS_HANDTUNED},
+  use game::{BOARD_HEIGHT, BOARD_WIDTH, Game};
+  use search::eval::WEIGHTS_HANDTUNED;
+  use triangle::{
+    engine::{queue::Mino, utils::KickTable},
+    types::game::{ComboTable, Spin, SpinBonuses},
   };
 
   pub fn init() -> (game::GameConfig, Queue, Game) {
     let config = game::GameConfig {
       kicks: KickTable::SRSX,
-      spins: Spins::Handheld,
+      spins: SpinBonuses::Handheld,
       b2b_chaining: false,
       b2b_charging: true,
       b2b_charge_at: 0,
       b2b_charge_base: 0,
       pc_b2b: 1,
       pc_send: 5,
-      combo_table: game::data::ComboTable::Multiplier,
+      combo_table: ComboTable::Multiplier,
       garbage_multiplier: 1.0,
       garbage_special_bonus: true,
     };
@@ -235,7 +234,7 @@ pub mod tests {
       if i == iters + 5 - 1 {
         println!(
           "Total positions found for {}: {}",
-          game.piece.mino.str(),
+          game.piece.mino.as_str(),
           r.0
         );
 
@@ -247,7 +246,7 @@ pub mod tests {
           tester.piece.y = y;
           tester.piece.rot = rot;
           tester.spin = spin;
-          println!("{} {} {} {}", x, y, rot, spin.str());
+          println!("{} {} {} {}", x, y, rot, spin.as_str());
           tester.print();
           tester.hard_drop(config);
           let key_start = Instant::now();
@@ -306,7 +305,7 @@ pub mod tests {
 
     println!(
       "SEARCHING THROUGH: <{}> {:?}",
-      game.piece.mino.str(),
+      game.piece.mino.as_str(),
       game.queue
     );
 
@@ -355,7 +354,7 @@ pub mod tests {
 
       println!(
         "SEARCHING THROUGH: <{}> {:?}",
-        game.piece.mino.str(),
+        game.piece.mino.as_str(),
         game.queue
       );
       let start = Instant::now();
@@ -385,7 +384,7 @@ pub mod tests {
       res.1.board.print();
       println!(
         "{} {} {} {}",
-        game.piece.mino.str(),
+        game.piece.mino.as_str(),
         res.0.0,
         res.0.1,
         res.0.2

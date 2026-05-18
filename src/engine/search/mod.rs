@@ -1,16 +1,14 @@
 #![allow(unused_variables)]
 
-#[cfg(target_feature = "bmi1")]
-use core::arch::x86_64::_tzcnt_u64;
 use std::{collections::HashSet, time::Instant};
 
-use crate::game::{
-  BOARD_HEIGHT, BOARD_WIDTH, Game, GameConfig,
-  data::{Mino, Move, Spin},
-};
+use crate::engine::game::data::{KickTableData, MinoData};
+use crate::engine::game::{BOARD_HEIGHT, BOARD_WIDTH, Game, GameConfig, data::Move};
 
 pub mod eval;
 use eval::{Weights, eval};
+use triangle::engine::queue::Mino;
+use triangle::types::game::Spin;
 
 const MOVES: [[Move; 6]; 7] = [
   // None
@@ -186,14 +184,7 @@ fn floodfill(
   let floor_y = if blocks_below_seed == 0 {
     0
   } else {
-    #[cfg(target_feature = "bmi1")]
-    unsafe {
-      _tzcnt_u64(blocks_below_seed) as usize + 1
-    }
-    #[cfg(not(target_feature = "bmi1"))]
-    {
       (blocks_below_seed.trailing_zeros() as usize) + 1
-    }
   };
 
   // Add the starting position to the stack (packed as x in high 32 bits, y in low 32 bits)
@@ -367,7 +358,7 @@ pub fn expand_floodfill(
       if from == to {
         continue;
       }
-      kick_tests[from][to] = config.kicks.data(mino, from as u8, to as u8);
+      kick_tests[from][to] = config.kicks.data_fast(mino, from as u8, to as u8);
     }
   }
   // Pre-flatten kick data for this piece
@@ -378,7 +369,7 @@ pub fn expand_floodfill(
       if from == to {
         continue;
       }
-      kick_tests[from][to] = config.kicks.data(mino, from as u8, to as u8);
+      kick_tests[from][to] = config.kicks.data_fast(mino, from as u8, to as u8);
     }
   }
   // Kick-loop with optimized rotation pairs

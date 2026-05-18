@@ -1,9 +1,11 @@
 use std::collections::VecDeque;
 
 pub mod data;
-use data::{ComboTable, KickTable, Mino, Spin, Spins};
 use garbage::damage_calc;
 use serde::Deserialize;
+use triangle::{engine::{queue::Mino, utils::KickTable}, types::game::{ComboTable, Spin, SpinBonuses}};
+
+use crate::engine::game::data::{KickTableData, MinoData};
 
 mod garbage;
 pub mod queue;
@@ -381,7 +383,7 @@ impl Falling {
 #[serde(rename_all = "camelCase")]
 pub struct GameConfig {
   pub kicks: KickTable,
-  pub spins: Spins,
+  pub spins: SpinBonuses,
   pub b2b_charging: bool,
   pub b2b_charge_at: i16,
   pub b2b_charge_base: i16,
@@ -490,7 +492,7 @@ impl Game {
     if res.0 == false {
       let from = self.piece.rot;
 
-      let kickset = config.kicks.data(self.piece.mino, from, to);
+      let kickset = config.kicks.data_fast(self.piece.mino, from, to);
 
       for &(dx, dy) in kickset.iter() {
         if !self.collision_map.test(
@@ -519,7 +521,7 @@ impl Game {
 
   #[inline(always)]
   pub fn update_spin(&mut self, is_tst_or_fin: bool, config: &GameConfig) {
-    if config.spins == Spins::None {
+    if config.spins == SpinBonuses::None {
       return;
     }
 
@@ -530,15 +532,15 @@ impl Game {
     };
 
     let immobile = match config.spins {
-      Spins::All | Spins::AllPlus | Spins::Mini | Spins::MiniPlus | Spins::MiniOnly => {
+      SpinBonuses::All | SpinBonuses::AllPlus | SpinBonuses::AllMini | SpinBonuses::AllMiniPlus | SpinBonuses::MiniOnly => {
         self.is_immobile()
       }
       _ => false,
     };
 
     self.spin = match config.spins {
-      Spins::None => Spin::None,
-      Spins::Stupid => {
+      SpinBonuses::None => Spin::None,
+      SpinBonuses::Stupid => {
         if self
           .collision_map
           .test(self.piece.x, self.piece.y - 1, self.piece.rot)
@@ -548,8 +550,8 @@ impl Game {
           Spin::None
         }
       }
-      Spins::T => t_status,
-      Spins::TPlus => {
+      SpinBonuses::TSpins => t_status,
+      SpinBonuses::TSpinsPlus => {
         if t_status != Spin::None {
           t_status
         } else if immobile && self.piece.mino == Mino::T {
@@ -558,7 +560,7 @@ impl Game {
           Spin::None
         }
       }
-      Spins::All => {
+      SpinBonuses::All => {
         if self.piece.mino == Mino::T {
           t_status
         } else if immobile {
@@ -567,7 +569,7 @@ impl Game {
           Spin::None
         }
       }
-      Spins::Mini => {
+      SpinBonuses::AllMini => {
         if self.piece.mino == Mino::T {
           t_status
         } else if immobile {
@@ -576,7 +578,7 @@ impl Game {
           Spin::None
         }
       }
-      Spins::AllPlus => {
+      SpinBonuses::AllPlus => {
         if self.piece.mino == Mino::T {
           if t_status != Spin::None {
             t_status
@@ -589,7 +591,7 @@ impl Game {
           if immobile { Spin::Normal } else { Spin::None }
         }
       }
-      Spins::MiniPlus => {
+      SpinBonuses::AllMiniPlus => {
         if self.piece.mino == Mino::T {
           if t_status != Spin::None {
             t_status
@@ -602,7 +604,7 @@ impl Game {
           if immobile { Spin::Mini } else { Spin::None }
         }
       }
-      Spins::MiniOnly => {
+      SpinBonuses::MiniOnly => {
         if t_status != Spin::None {
           Spin::Mini
         } else if immobile {
@@ -611,7 +613,7 @@ impl Game {
           Spin::None
         }
       }
-      Spins::Handheld => self.detect_spin(is_tst_or_fin),
+      SpinBonuses::Handheld => self.detect_spin(is_tst_or_fin),
     };
   }
 
