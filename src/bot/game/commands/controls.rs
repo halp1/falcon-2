@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use triangle::types::room::Bracket;
 
-use crate::bot::lib::commands::{DefineOptions, DefineParams, ListenerInput, Parameter};
+use crate::bot::lib::commands::{Commands, DefineParams, ListenerInput, Parameter};
 
 use super::super::{Bot, Category, Finesse, Restriction};
 
@@ -11,9 +11,7 @@ type Input = ListenerInput<Restriction, Arc<Bot>>;
 const PPS_MIN: f64 = 0.5;
 const PPS_MAX: f64 = 10.0;
 
-pub fn register(bot: &Arc<Bot>) {
-  let mut cmds = bot.commands.lock();
-
+pub fn register(cmds: &mut Commands<Restriction, Category, Arc<Bot>>) {
   cmds.define(
     &["kill"],
     DefineParams {
@@ -29,10 +27,7 @@ pub fn register(bot: &Arc<Bot>) {
         bot.destroy().await;
       }
     },
-    DefineOptions {
-      restricted: true,
-      cooldown: None,
-    },
+    true,
   );
 
   cmds.define(
@@ -80,10 +75,7 @@ pub fn register(bot: &Arc<Bot>) {
         }
       }
     },
-    DefineOptions {
-      restricted: true,
-      cooldown: None,
-    },
+    true,
   );
 
   cmds.define(
@@ -121,10 +113,7 @@ pub fn register(bot: &Arc<Bot>) {
         }
       }
     },
-    DefineOptions {
-      restricted: true,
-      cooldown: None,
-    },
+    true,
   );
 
   cmds.define(
@@ -164,10 +153,10 @@ pub fn register(bot: &Arc<Bot>) {
           return;
         }
         if v == Restriction::Dev && user_level != Restriction::Dev {
-          reply("This restriction level is locked to moderators.".into());
+          reply("This restriction level is locked to developers.".into());
           return;
         }
-        bot.commands.lock().restrict(v);
+        bot.state.write().restriction = v;
         if v == Restriction::None {
           reply("Restrictions are now off.".into());
         } else {
@@ -175,10 +164,7 @@ pub fn register(bot: &Arc<Bot>) {
         }
       }
     },
-    DefineOptions {
-      restricted: true,
-      cooldown: None,
-    },
+    true,
   );
 
   cmds.define(
@@ -234,7 +220,7 @@ pub fn register(bot: &Arc<Bot>) {
         reply(format!("Set PPS to {}.", rounded));
       }
     },
-    DefineOptions { restricted: true, cooldown: None },
+    true,
   );
 
   cmds.define(
@@ -285,9 +271,6 @@ pub fn register(bot: &Arc<Bot>) {
         reply(format!("Set finesse mode to {}.", arg));
       }
     },
-    DefineOptions {
-      restricted: true,
-      cooldown: None,
-    },
+    true,
   );
 }

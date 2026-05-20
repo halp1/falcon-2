@@ -1,15 +1,12 @@
 use std::sync::Arc;
 
-use crate::bot::lib::commands::{
-  CommandInfo, DefineOptions, DefineParams, ListenerInput, Parameter,
-};
+use crate::bot::lib::commands::{CommandInfo, Commands, DefineParams, ListenerInput, Parameter};
 
 use super::super::{Bot, Category, Restriction};
 
 type Input = ListenerInput<Restriction, Arc<Bot>>;
 
-pub fn register(bot: &Arc<Bot>) {
-  let mut cmds = bot.commands.lock();
+pub fn register(cmds: &mut Commands<Restriction, Category, Arc<Bot>>) {
 
   cmds.define(
     &["help", "h"],
@@ -48,7 +45,7 @@ pub fn register(bot: &Arc<Bot>) {
             (Category::Dev, 99),
           ];
 
-          let categorized = bot.commands.lock().get_commands_by_category();
+          let categorized = bot.commands.get_commands_by_category();
 
           let mut visible: Vec<(Category, u32, String)> = vec![];
 
@@ -100,7 +97,7 @@ pub fn register(bot: &Arc<Bot>) {
           return;
         }
 
-        let command_info = bot.commands.lock().info(&first_arg).clone();
+        let command_info = bot.commands.info(&first_arg).clone();
         let Some(c) = command_info else {
           reply("Command not found".into());
           return;
@@ -145,7 +142,7 @@ pub fn register(bot: &Arc<Bot>) {
         }
       }
     },
-    DefineOptions::default(),
+    false,
   );
 }
 

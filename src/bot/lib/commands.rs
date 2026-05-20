@@ -1,11 +1,12 @@
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use triangle::utils::events::AsyncCallback;
 
 pub use triangle::utils::events::SyncFn;
 
+#[derive(Debug)]
 pub struct User<L> {
   pub id: String,
   pub name: String,
@@ -51,23 +52,10 @@ pub struct DefineParams<C> {
   pub category: C,
 }
 
-pub struct DefineOptions<L> {
-  pub restricted: bool,
-}
-
-impl<L> Default for DefineOptions<L> {
-  fn default() -> Self {
-    Self {
-      restricted: false,
-    }
-  }
-}
-
 pub struct Commands<L, C, D = ()> {
   pub prefix: String,
   pub reply_prefix: String,
   pub name: String,
-  restriction: L,
   restriction_levels: Vec<L>,
   categories: Vec<C>,
   listeners: Vec<CommandEntry<L, C, D>>,
@@ -81,7 +69,6 @@ where
 {
   pub fn new(
     restriction_levels: Vec<L>,
-    default_restriction: L,
     categories: Vec<C>,
     prefix: impl Into<String>,
     reply_prefix: impl Into<String>,
@@ -91,7 +78,6 @@ where
       prefix: prefix.into(),
       reply_prefix: reply_prefix.into(),
       name: name.into(),
-      restriction: default_restriction,
       restriction_levels,
       categories,
       listeners: Vec::new(),
@@ -103,16 +89,10 @@ where
     commands: &[&str],
     params: DefineParams<C>,
     listener: F,
-    options: DefineOptions<L>,
+    restricted: bool,
   ) where
     F: AsyncCallback<ListenerInput<L, D>> + Sync,
   {
-    let cooldown = options.cooldown.map(|c| Cooldown {
-      value: c.value,
-      bypass: c.bypass.or_else(|| self.default_cooldown_bypass.clone()),
-      players: HashMap::new(),
-    });
-
     let arced: Arc<dyn Fn(ListenerInput<L, D>) -> BoxFuture<'static, ()> + Send + Sync> =
       Arc::new(move |input| Box::pin(listener.clone().call(input)));
 
@@ -120,16 +100,11 @@ where
       command: commands[0].to_string(),
       alts: commands[1..].iter().map(|s| s.to_string()).collect(),
       listener: arced,
-      restricted: options.restricted,
-      cooldown,
+      restricted,
       description: params.description,
       category: params.category,
       parameters: params.parameters,
     });
-  }
-
-  pub fn off(&mut self, command: &str) {
-    self.listeners.retain(|l| l.command != command);
   }
 
   pub fn commands(&self) -> Vec<Vec<String>> {
@@ -142,10 +117,6 @@ where
           .collect()
       })
       .collect()
-  }
-
-  pub fn set_prefix(&mut self, prefix: impl Into<String>) {
-    self.prefix = prefix.into();
   }
 
   pub fn info(&self, command: &str) -> Option<CommandInfo> {
@@ -205,10 +176,11 @@ where
   }
 
   pub fn prepare_calls(
-    &mut self,
+    &self,
     user: User<L>,
     message: &str,
     data: D,
+    restriction: L,
     send_message: impl Fn(String) + Send + Sync + Clone + 'static,
   ) -> Vec<BoxFuture<'static, ()>> {
     if !message.starts_with(&self.prefix) {
@@ -259,7 +231,7 @@ where
     let required_idx = self
       .restriction_levels
       .iter()
-      .position(|r| r == &self.restriction)
+      .position(|r| r == &restriction)
       .unwrap_or(0);
 
     let mut futures: Vec<BoxFuture<'static, ()>> = vec![];
@@ -276,47 +248,6 @@ where
           ));
         }));
         continue;
-      }
-
-      let bypass_idx = self.listeners[idx]
-        .cooldown
-        .as_ref()
-        .and_then(|cd| cd.bypass.as_ref())
-        .and_then(|b| self.restriction_levels.iter().position(|r| r == b));
-
-      let should_check_cooldown = self.listeners[idx].cooldown.is_some()
-        && bypass_idx.map(|bi| user_level_idx < bi).unwrap_or(true);
-
-      if should_check_cooldown {
-        let skip_msg = self.listeners[idx].cooldown.as_ref().and_then(|cd| {
-          cd.players.get(&user.id).and_then(|&last_used| {
-            if last_used.elapsed() < cd.value {
-              let remaining = cd.value.saturating_sub(last_used.elapsed());
-              Some(format!(
-                "{}You must wait {} seconds before using this command again.",
-                self.reply_prefix,
-                remaining.as_secs_f64().ceil() as u64
-              ))
-            } else {
-              None
-            }
-          })
-        });
-
-        if let Some(msg) = skip_msg {
-          let sm = send_message.clone();
-          futures.push(Box::pin(async move {
-            sm(msg);
-          }));
-          continue;
-        }
-
-        self.listeners[idx]
-          .cooldown
-          .as_mut()
-          .unwrap()
-          .players
-          .insert(user.id.clone(), Instant::now());
       }
 
       let reply_prefix = self.reply_prefix.clone();
@@ -340,13 +271,5 @@ where
     }
 
     futures
-  }
-
-  pub fn restrict(&mut self, level: L) {
-    self.restriction = level;
-  }
-
-  pub fn level(&self) -> &L {
-    &self.restriction
   }
 }

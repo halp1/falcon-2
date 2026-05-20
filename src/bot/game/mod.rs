@@ -85,6 +85,7 @@ pub struct GameState {
 pub struct State {
   enabled: EnabledState,
   game: Option<GameState>,
+  restriction: Restriction,
 }
 
 pub struct Bot {
@@ -94,7 +95,7 @@ pub struct Bot {
   pub state: RwLock<State>,
   pub settings: SettingsHandler,
   events: EventEmitter,
-  pub commands: Mutex<Commands<Restriction, Category, Arc<Bot>>>,
+  pub commands: Commands<Restriction, Category, Arc<Bot>>,
 }
 
 #[derive(Debug, Error)]
@@ -126,7 +127,6 @@ impl Bot {
     .await
     .map_err(BotError::ConnectionError)?;
 
-
     let (room_tx, room_rx) = tokio::sync::oneshot::channel::<recv::room::Update>();
     let room_tx = Arc::new(Mutex::new(Some(room_tx)));
 
@@ -146,6 +146,25 @@ impl Bot {
       .await
       .map_err(|_| BotError::RoomError(WrapError::ServerError))?;
 
+    let mut cmd = Commands::new(
+      vec![
+        Restriction::None,
+        Restriction::Player,
+        Restriction::Host,
+        Restriction::Dev,
+      ],
+      vec![
+        Category::Info,
+        Category::Controls,
+        Category::Solver,
+        Category::Dev,
+      ],
+      ">",
+      "",
+      "falcon",
+    );
+    commands::register(&mut cmd);
+
     let bot = Arc::new(Bot {
       engine: Mutex::new(Falcon::new()),
       client,
@@ -161,32 +180,13 @@ impl Bot {
           force: false,
         },
         game: None,
+        restriction: Restriction::None,
       }),
       events: EventEmitter::new(),
-      commands: Mutex::new(Commands::new(
-        vec![
-          Restriction::None,
-          Restriction::Player,
-          Restriction::Host,
-          Restriction::Dev,
-        ],
-        Restriction::None,
-        vec![
-          Category::Info,
-          Category::Controls,
-          Category::Solver,
-          Category::Dev,
-        ],
-        ".",
-        "",
-        "falcon",
-        Some(Restriction::Dev),
-      )),
+      commands: cmd,
     });
 
-
     bot.handle_room_update(room_update_data).await;
-
 
     if let Some(mut room) = bot.client.room() {
       room.chat(":oyes:/").await.ok();
@@ -194,10 +194,7 @@ impl Bot {
       return Err(BotError::RoomError(WrapError::ServerError));
     }
 
-
     bot.bind().await;
-    commands::register(&bot);
-    bot.commands.lock().restrict(Restriction::None);
 
     Ok(bot)
   }
@@ -243,12 +240,19 @@ impl Bot {
       if data.user.id.is_none() {
         return;
       }
-      if data.user.username == b.client.user.username {
+      if data
+        .user
+        .id
+        .as_ref()
+        .map_or(false, |id| *id == b.client.user.id)
+      {
         return;
       }
 
       let bot_username = b.client.user.username.clone();
-      let prefix = b.commands.lock().prefix.clone();
+      let prefix = b.commands.prefix.clone();
+
+      tracing::info!("processing message from {}", data.user.username);
 
       if data.content == format!("@{}", bot_username) {
         if let Some(mut room) = b.client.room() {
@@ -267,10 +271,10 @@ impl Bot {
       .to_lowercase();
 
       let user_id = data.user.id.as_deref().unwrap_or("").to_string();
-      let room_info = b
-        .client
-        .room()
-        .map(|r| (r.state.lock().owner.clone(), r.state.lock().players.clone()));
+      let room_info = b.client.room().map(|r| {
+        let s = r.state.lock();
+        (s.owner.clone(), s.players.clone())
+      });
 
       let level = if let Some((owner, players)) = &room_info {
         if user_id == *owner {
@@ -294,18 +298,24 @@ impl Bot {
       };
 
       let b2 = b.clone();
+      tracing::info!("running: {:?}, {}", user, content);
       let futures = {
-        let mut cmds = b.commands.lock();
-        cmds.prepare_calls(user, &content, b2.clone(), move |message| {
-          let bb = b2.clone();
-          let msg = message.clone();
-					tracing::info!("sending message: {}", msg);
-          tokio::spawn(async move {
-            if let Some(mut room) = bb.client.room() {
-              room.chat(&msg).await.ok();
-            }
-          });
-        })
+        b.commands.prepare_calls(
+          user,
+          &content,
+          b2.clone(),
+          b.state.read().restriction,
+          move |message| {
+            let bb = b2.clone();
+            let msg = message.clone();
+            tracing::info!("sending message: {}", msg);
+            tokio::spawn(async move {
+              if let Some(mut room) = bb.client.room() {
+                room.chat(&msg).await.ok();
+              }
+            });
+          },
+        )
       };
 
       for fut in futures {
