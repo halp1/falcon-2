@@ -4,3 +4,4 @@ bun.lock
 scripts
 perf.data
 perf.data.old
+logs

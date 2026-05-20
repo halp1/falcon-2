@@ -1,3 +1,6 @@
+mod commands;
+mod settings;
+mod utils;
 use std::sync::Arc;
 
 use parking_lot::{Mutex, RwLock};
@@ -20,6 +23,7 @@ use crate::{
     commands::{Commands, User},
     config::CONFIG,
     events::{events, msgs},
+    logs::WSLogger,
   },
   engine::{
     Falcon,
@@ -27,12 +31,34 @@ use crate::{
   },
   env,
 };
-
-mod commands;
-mod settings;
-mod utils;
-
 use settings::{ConstraintLevel, SettingsHandler};
+
+struct FrameCounter(f64);
+impl FrameCounter {
+  pub fn new(v: u64) -> Self {
+    Self(v as f64)
+  }
+
+  pub fn add(&mut self, delta: f64) {
+    self.0 = ((self.0 + delta) * 10.0).round() / 10.0;
+  }
+
+  pub fn frame(&self) -> u64 {
+    self.0.floor() as u64
+  }
+
+  pub fn subframe(&self) -> f64 {
+    ((self.0 - self.0.floor()) * 10.0).round() / 10.0
+  }
+
+  pub fn as_f64(&self) -> f64 {
+    (self.0 * 10.0).round() / 10.0
+  }
+
+  pub fn max(&self, other: FrameCounter) -> Self {
+    Self(self.0.max(other.0))
+  }
+}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub enum Restriction {
@@ -104,6 +130,8 @@ pub enum BotError {
   ConnectionError(ApiError),
   #[error("Failed to join or create room: {0}")]
   RoomError(WrapError),
+  #[error("IO error: {0}")]
+  IoError(#[from] std::io::Error),
 }
 
 impl Bot {
@@ -115,7 +143,7 @@ impl Bot {
       }),
       ribbon: Some(ribbon::OptionalParams {
         options: Some(ribbon::Options {
-          logging: ribbon::LoggingLevel::All,
+          logging: ribbon::LoggingLevel::Error,
           ..Default::default()
         }),
         ..Default::default()
@@ -126,6 +154,18 @@ impl Bot {
     })
     .await
     .map_err(BotError::ConnectionError)?;
+
+    let ws_logger = Arc::new(WSLogger::new()?);
+
+    let ws_logger_2 = ws_logger.clone();
+
+    client.on::<recv::client::ribbon::Receive>(async move |data| {
+      ws_logger_2.push("receive", &data.command, &data.data);
+    });
+
+    client.on::<recv::client::ribbon::Send>(async move |data| {
+      ws_logger.push("send", &data.command, &data.data);
+    });
 
     let (room_tx, room_rx) = tokio::sync::oneshot::channel::<recv::room::Update>();
     let room_tx = Arc::new(Mutex::new(Some(room_tx)));
@@ -237,7 +277,7 @@ impl Bot {
     let b = self.clone();
 
     self.client.on::<recv::room::Chat>(async move |data| {
-      if data.user.id.is_none() {
+      if data.system || data.user.id.is_none() {
         return;
       }
       if data
@@ -251,8 +291,6 @@ impl Bot {
 
       let bot_username = b.client.user.username.clone();
       let prefix = b.commands.prefix.clone();
-
-      tracing::info!("processing message from {}", data.user.username);
 
       if data.content == format!("@{}", bot_username) {
         if let Some(mut room) = b.client.room() {
@@ -298,7 +336,6 @@ impl Bot {
       };
 
       let b2 = b.clone();
-      tracing::info!("running: {:?}, {}", user, content);
       let futures = {
         b.commands.prepare_calls(
           user,
@@ -352,6 +389,8 @@ impl Bot {
           Some(e) => e,
           None => return,
         };
+
+        b.client.game().unwrap().me.unwrap().set_pause_iges(true);
 
         {
           let mut falcon = b.engine.lock();
@@ -486,6 +525,16 @@ impl Bot {
     result.max(next_hd).max(engine.frame as f64 + 1.0) as u64
   }
 
+  fn keypress_duration(&self, m: &Move, engine: &Engine) -> f64 {
+    if m == &Move::SoftDrop {
+      0.1
+    } else if m == &Move::DasLeft || m == &Move::DasRight {
+      engine.handling.das + 0.1
+    } else {
+      0.0
+    }
+  }
+
   fn process_keys(&self, raw: &[Move], engine: &Engine) -> Vec<tick::Keypress> {
     struct InternalKeypress {
       key: Key,
@@ -493,64 +542,92 @@ impl Bot {
       duration: f64,
     }
 
-    let now = engine.frame as f64;
+    let now = engine.frame;
 
     let finesse = self.config.read().finesse;
     let frames: Vec<InternalKeypress> = match finesse {
       Finesse::Instant => {
-        let mut frame = now;
+        let mut frame = FrameCounter::new(now);
         raw
           .iter()
           .map(|m| {
-            let duration = if *m == Move::SoftDrop {
-              0.1
-            } else if *m == Move::DasLeft || *m == Move::DasRight {
-              engine.handling.das
-            } else {
-              0.0
-            };
+            let duration = self.keypress_duration(m, engine);
             let kp = InternalKeypress {
               key: utils::move_to_key(*m),
-              frame,
+              frame: frame.as_f64(),
               duration,
             };
-            frame += duration;
+            frame.add(duration);
             kp
           })
           .collect()
       }
 
       Finesse::Smooth => {
-        const MAX_PIECE_FRAMES: f64 = 45.0;
+        const MAX_PIECE_FRAMES: u64 = 45;
 
-        let mut running_frame = now;
-        let time_to_next =
-          (self.next_piece_frame(engine, None) as f64 - now - 1.0).min(MAX_PIECE_FRAMES);
+        let mut frame = FrameCounter::new(now);
+        let time_to_next = (self
+          .next_piece_frame(engine, None)
+          .saturating_sub(now)
+          .saturating_sub(1))
+        .min(MAX_PIECE_FRAMES);
+
+        let arr = engine.handling.arr;
 
         let soft_drop_count = raw.iter().filter(|m| **m == Move::SoftDrop).count();
-        let time_per_press =
-          ((time_to_next - soft_drop_count as f64 * 0.1) / raw.len() as f64) * 0.99;
+        let das_count = raw
+          .iter()
+          .filter(|m| **m == Move::DasLeft || **m == Move::DasRight)
+          .count();
+        let time_per_press = ((time_to_next as f64
+          - soft_drop_count as f64 * 0.1
+          - das_count as f64 * engine.handling.das)
+          / raw.len() as f64)
+          * 0.99;
 
+        let mut sim_falling = engine.falling.clone();
+
+        // key, frame, duration, delay
         let mut tmp: Vec<(Move, f64, f64, f64)> = Vec::new();
 
         for m in raw {
           let delay = time_per_press.max(0.0);
-          let duration = if *m == Move::SoftDrop { 0.1 } else { 0.0 };
+          let arr_time = if *m == Move::DasLeft || *m == Move::DasRight {
+            let x_before = sim_falling.x();
+            if *m == Move::DasLeft {
+              sim_falling.das_left(&engine.board.state);
+            } else {
+              sim_falling.das_right(&engine.board.state);
+            }
+            let displacement = (sim_falling.x() - x_before).abs() as f64;
+            (arr * (displacement - 1.0)).max(0.0)
+          } else {
+            match m {
+              Move::CW => sim_falling.set_rotation(sim_falling.rotation() as i32 + 1),
+              Move::CCW => sim_falling.set_rotation(sim_falling.rotation() as i32 - 1),
+              Move::Flip => sim_falling.set_rotation(sim_falling.rotation() as i32 + 2),
+              _ => {}
+            }
+            0.0
+          };
 
-          tmp.push((*m, running_frame, duration, delay));
+          let duration = self.keypress_duration(m, engine) + arr_time;
 
-          let prev_frame = running_frame;
-          running_frame += delay + duration;
+          tmp.push((*m, frame.as_f64(), duration, delay));
 
-          if *m == Move::SoftDrop && running_frame % 1.0 != 0.0 {
-            running_frame = running_frame.max((prev_frame + duration).ceil());
+          let prev_frame = frame.0;
+          frame.add(delay + duration);
+
+          if *m == Move::SoftDrop && frame.as_f64() != 0.0 {
+            frame = frame.max(FrameCounter((prev_frame + duration).ceil()));
           }
         }
 
         let total: f64 = tmp.iter().map(|(_, _, d, delay)| delay + d).sum();
-        if total > time_to_next {
+        if total > time_to_next as f64 {
           let duration_sum: f64 = tmp.iter().map(|(_, _, d, _)| d).sum();
-          let multiplier = (time_to_next + duration_sum) / total;
+          let multiplier = (time_to_next as f64 + duration_sum) / total;
           tmp
             .iter_mut()
             .for_each(|(_, _, _, delay)| *delay *= multiplier);
@@ -570,22 +647,29 @@ impl Bot {
     frames
       .into_iter()
       .flat_map(|f| {
-        [
-          tick::Keypress {
-            r#type: tick::KeypressType::Keydown,
-            frame: f.frame.floor() as u64,
-            data: tick::KeypressData {
-              key: f.key,
-              subframe: ((f.frame % 1.0) * 10.0).round() / 10.0,
-              hoisted: false,
-            },
+        let mut frame = FrameCounter(f.frame);
+        frame.add(0.0);
+
+        let first = tick::Keypress {
+          r#type: tick::KeypressType::Keydown,
+          frame: frame.frame(),
+          data: tick::KeypressData {
+            key: f.key,
+            subframe: frame.subframe(),
+            hoisted: false,
           },
+        };
+
+        frame.add(f.duration);
+
+        [
+          first,
           tick::Keypress {
             r#type: tick::KeypressType::Keyup,
-            frame: (f.frame + f.duration).floor() as u64,
+            frame: frame.frame(),
             data: tick::KeypressData {
               key: f.key,
-              subframe: (((f.frame + f.duration) % 1.0) * 10.0).round() / 10.0,
+              subframe: frame.subframe(),
               hoisted: false,
             },
           },
@@ -596,12 +680,28 @@ impl Bot {
           kp.data.subframe -= 1.0;
           kp.frame += 1;
         }
+        kp.data.subframe = (kp.data.subframe * 10.0).round() / 10.0;
+
         kp
       })
       .collect()
   }
 
   async fn tick(&self, input: tick::In) -> tick::Out {
+    if !input.new_garbage.is_empty() {
+      self.engine.lock().insert_garbage(
+        input
+          .new_garbage
+          .iter()
+          .map(|g| Garbage {
+            col: g.column as u8,
+            amt: g.amount as u8,
+            time: 0,
+          })
+          .collect(),
+      );
+    }
+
     let game_state = { self.state.read().game.as_ref().map(|g| g.target_frame) };
 
     let Some(target_frame) = game_state else {
@@ -638,20 +738,6 @@ impl Bot {
       };
     }
 
-    if !input.new_garbage.is_empty() {
-      self.engine.lock().insert_garbage(
-        input
-          .new_garbage
-          .iter()
-          .map(|g| Garbage {
-            col: g.column as u8,
-            amt: g.amount as u8,
-            time: 0,
-          })
-          .collect(),
-      );
-    }
-
     {
       let mut state = self.state.write();
       if let Some(game) = &mut state.game {
@@ -681,10 +767,13 @@ impl Bot {
 
     let mv = self.engine.lock().step(garbage_queue);
 
+    tracing::info!(
+      "keys: {:?}",
+      mv.as_ref().map(|m| m.keys.clone()).unwrap_or_default()
+    );
+
     let keys = if let Some(res) = mv {
-      let mut moves = res.keys.clone();
-      moves.push(Move::HardDrop);
-      self.process_keys(&moves, &input.engine)
+      self.process_keys(&res.keys, &input.engine)
     } else {
       vec![]
     };
