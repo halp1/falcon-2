@@ -27,7 +27,7 @@ impl MinoData for Mino {
       Mino::S => "\x1b[102m  \x1b[49m",
       Mino::T => "\x1b[105m  \x1b[49m",
       Mino::Z => "\x1b[101m  \x1b[49m",
-			_ => panic!("Invalid mino type: {:?}", self),
+      _ => panic!("Invalid mino type: {:?}", self),
     }
   }
 
@@ -41,7 +41,7 @@ impl MinoData for Mino {
       Mino::S => &TETROMINO_S,
       Mino::T => &TETROMINO_T,
       Mino::Z => &TETROMINO_Z,
-			_ => panic!("Invalid mino type: {:?}", self),
+      _ => panic!("Invalid mino type: {:?}", self),
     }
   }
 
@@ -59,7 +59,7 @@ impl MinoData for Mino {
       Mino::S => &TETROMINO_S.rots[rot],
       Mino::T => &TETROMINO_T.rots[rot],
       Mino::Z => &TETROMINO_Z.rots[rot],
-			_ => panic!("Invalid mino type: {:?}", self),
+      _ => panic!("Invalid mino type: {:?}", self),
     }
   }
 
@@ -75,7 +75,7 @@ impl MinoData for Mino {
       Mino::S => Some(&CORNERTABLE_S),
       Mino::T => Some(&CORNERTABLE_T),
       Mino::Z => Some(&CORNERTABLE_Z),
-			_ => panic!("Invalid mino type: {:?}", self),
+      _ => panic!("Invalid mino type: {:?}", self),
     }
   }
 
@@ -88,7 +88,7 @@ impl MinoData for Mino {
       Mino::S => "S",
       Mino::T => "T",
       Mino::Z => "Z",
-			_ => panic!("Invalid mino type: {:?}", self),
+      _ => panic!("Invalid mino type: {:?}", self),
     }
   }
 }

@@ -184,7 +184,7 @@ fn floodfill(
   let floor_y = if blocks_below_seed == 0 {
     0
   } else {
-      (blocks_below_seed.trailing_zeros() as usize) + 1
+    (blocks_below_seed.trailing_zeros() as usize) + 1
   };
 
   // Add the starting position to the stack (packed as x in high 32 bits, y in low 32 bits)

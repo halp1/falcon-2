@@ -7,7 +7,6 @@ use super::super::{Bot, Category, Restriction};
 type Input = ListenerInput<Restriction, Arc<Bot>>;
 
 pub fn register(cmds: &mut Commands<Restriction, Category, Arc<Bot>>) {
-
   cmds.define(
     &["help", "h"],
     DefineParams {

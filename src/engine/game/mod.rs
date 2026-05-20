@@ -3,7 +3,10 @@ use std::collections::VecDeque;
 pub mod data;
 use garbage::damage_calc;
 use serde::Deserialize;
-use triangle::{engine::{queue::Mino, utils::KickTable}, types::game::{ComboTable, Spin, SpinBonuses}};
+use triangle::{
+  engine::{queue::Mino, utils::KickTable},
+  types::game::{ComboTable, Spin, SpinBonuses},
+};
 
 use crate::engine::game::data::{KickTableData, MinoData};
 
@@ -532,9 +535,11 @@ impl Game {
     };
 
     let immobile = match config.spins {
-      SpinBonuses::All | SpinBonuses::AllPlus | SpinBonuses::AllMini | SpinBonuses::AllMiniPlus | SpinBonuses::MiniOnly => {
-        self.is_immobile()
-      }
+      SpinBonuses::All
+      | SpinBonuses::AllPlus
+      | SpinBonuses::AllMini
+      | SpinBonuses::AllMiniPlus
+      | SpinBonuses::MiniOnly => self.is_immobile(),
       _ => false,
     };
 
@@ -635,10 +640,9 @@ impl Game {
       return Spin::None;
     }
 
-		
     let mut corners = 0u8;
     let mut front_corners = 0u8;
-		
+
     let table = table[self.piece.rot as usize];
 
     for i in 0..4 {

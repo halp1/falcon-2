@@ -1,7 +1,10 @@
-use triangle::{engine::{queue::bag::BagType, utils::KickTable}, types::{
-  events::recv,
-  game::{GarbageEntry, GarbageTargetBonus, Passthrough, SpinBonuses},
-}};
+use triangle::{
+  engine::{queue::bag::BagType, utils::KickTable},
+  types::{
+    events::recv,
+    game::{GarbageEntry, GarbageTargetBonus, Passthrough, SpinBonuses},
+  },
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ConstraintLevel {
@@ -73,9 +76,7 @@ impl SettingsHandler {
           .options
           .as_ref()
           .and_then(|o| o.passthrough.as_ref())
-          .map_or(false, |v| {
-            matches!(v, Passthrough::Zero)
-          });
+          .map_or(false, |v| matches!(v, Passthrough::Zero));
         if !ok {
           err("falcon only supports zero passthrough.")
         } else {

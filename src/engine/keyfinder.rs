@@ -2,10 +2,7 @@ use triangle::types::game::Spin;
 
 use crate::engine::game::data::MinoData;
 
-use super::game::{
-  Game, GameConfig,
-  data::{Move},
-};
+use super::game::{Game, GameConfig, data::Move};
 
 const MOVES: [[Move; 9]; 9] = [
   // None
@@ -167,7 +164,6 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
       if mv == Move::None {
         break;
       }
-      
 
       state.spin = spin;
       state.piece.x = x;
