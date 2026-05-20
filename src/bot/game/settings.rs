@@ -22,11 +22,13 @@ impl std::fmt::Display for ConstraintLevel {
   }
 }
 
+#[derive(Debug, Clone)]
 pub struct ConstraintOutput {
   pub level: ConstraintLevel,
   pub message: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct CheckResult {
   pub level: ConstraintLevel,
   pub outputs: Vec<ConstraintOutput>,
@@ -59,9 +61,9 @@ impl SettingsHandler {
           .options
           .as_ref()
           .and_then(|o| o.spinbonuses.as_ref())
-          .map_or(false, |v| *v == SpinBonuses::AllMini);
+          .map_or(false, |v| *v == SpinBonuses::AllMiniPlus);
         if !ok {
-          err("falcon does not support spin bonuses outside of all-mini.")
+          err("falcon does not support spin bonuses outside of all-mini+.")
         } else {
           None
         }

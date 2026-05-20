@@ -1,8 +1,5 @@
 use std::sync::Arc;
-use std::{
-  collections::HashMap,
-  time::{Duration, Instant},
-};
+use std::collections::HashMap;
 
 use futures::future::BoxFuture;
 use triangle::utils::events::AsyncCallback;
@@ -38,18 +35,11 @@ pub struct CommandInfo {
   pub parameters: Vec<Parameter>,
 }
 
-struct Cooldown<L> {
-  value: Duration,
-  bypass: Option<L>,
-  players: HashMap<String, Instant>,
-}
-
 struct CommandEntry<L, C, D> {
   command: String,
   alts: Vec<String>,
   listener: Arc<dyn Fn(ListenerInput<L, D>) -> BoxFuture<'static, ()> + Send + Sync>,
   restricted: bool,
-  cooldown: Option<Cooldown<L>>,
   description: String,
   category: C,
   parameters: Vec<Parameter>,
@@ -61,21 +51,14 @@ pub struct DefineParams<C> {
   pub category: C,
 }
 
-pub struct CooldownOptions<L> {
-  pub value: Duration,
-  pub bypass: Option<L>,
-}
-
 pub struct DefineOptions<L> {
   pub restricted: bool,
-  pub cooldown: Option<CooldownOptions<L>>,
 }
 
 impl<L> Default for DefineOptions<L> {
   fn default() -> Self {
     Self {
       restricted: false,
-      cooldown: None,
     }
   }
 }
@@ -86,7 +69,6 @@ pub struct Commands<L, C, D = ()> {
   pub name: String,
   restriction: L,
   restriction_levels: Vec<L>,
-  default_cooldown_bypass: Option<L>,
   categories: Vec<C>,
   listeners: Vec<CommandEntry<L, C, D>>,
 }
@@ -104,7 +86,6 @@ where
     prefix: impl Into<String>,
     reply_prefix: impl Into<String>,
     name: impl Into<String>,
-    default_cooldown_bypass: Option<L>,
   ) -> Self {
     Self {
       prefix: prefix.into(),
@@ -112,7 +93,6 @@ where
       name: name.into(),
       restriction: default_restriction,
       restriction_levels,
-      default_cooldown_bypass,
       categories,
       listeners: Vec::new(),
     }

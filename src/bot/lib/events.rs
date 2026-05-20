@@ -7,7 +7,7 @@ use futures::future::join_all;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
-pub use triangle::utils::events::Event;
+pub use triangle::utils::events::{AsyncCallback, Event};
 
 pub type ListenerId = u64;
 
@@ -40,46 +40,49 @@ impl Events {
     }
   }
 
-  pub async fn on<T, F, Fut>(&self, cb: F) -> ListenerId
-  where
-    T: Event,
-    F: Fn(T) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = ()> + Send + 'static,
-  {
-    self.add_listener::<T, F, Fut>(cb, false).await
+  pub async fn on<T: Event>(
+    &self,
+    cb: impl AsyncFnOnce(T) -> () + AsyncCallback<T> + Sync,
+  ) -> ListenerId {
+    self
+      .add_listener(T::NAME, Self::erase::<T>(cb), false)
+      .await
   }
 
   pub async fn off(&self, id: ListenerId) {
     self.listeners.write().await.retain(|l| l.id != id);
   }
 
-  pub async fn once<T, F, Fut>(&self, cb: F) -> ListenerId
-  where
-    T: Event,
-    F: Fn(T) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = ()> + Send + 'static,
-  {
-    self.add_listener::<T, F, Fut>(cb, true).await
+  pub async fn once<T: Event>(
+    &self,
+    cb: impl AsyncFnOnce(T) -> () + AsyncCallback<T> + Sync,
+  ) -> ListenerId {
+    self.add_listener(T::NAME, Self::erase::<T>(cb), true).await
   }
 
-  async fn add_listener<T, F, Fut>(&self, cb: F, once: bool) -> ListenerId
-  where
-    T: Event,
-    F: Fn(T) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = ()> + Send + 'static,
-  {
-    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    let cb = Arc::new(move |val: Value| -> BoxFuture {
+  fn erase<T: Event>(
+    cb: impl AsyncFnOnce(T) -> () + AsyncCallback<T> + Sync,
+  ) -> Arc<dyn Fn(Value) -> BoxFuture + Send + Sync> {
+    Arc::new(move |val: Value| -> BoxFuture {
       match serde_json::from_value::<T>(val) {
-        Ok(event) => Box::pin(cb(event)),
+        Ok(event) => Box::pin(cb.clone().call(event)),
         Err(e) => Box::pin(async move {
           tracing::error!("Failed to parse event {}: {}", T::NAME, e);
         }),
       }
-    });
+    })
+  }
+
+  async fn add_listener(
+    &self,
+    event: &'static str,
+    cb: Arc<dyn Fn(Value) -> BoxFuture + Send + Sync>,
+    once: bool,
+  ) -> ListenerId {
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     self.listeners.write().await.push(Listener {
       id,
-      event: T::NAME,
+      event,
       cb,
       once,
     });
@@ -125,12 +128,9 @@ impl Events {
 static EVENTS: OnceLock<Events> = OnceLock::new();
 
 pub mod msgs {
-	triangle::event!(shutdown => Shutdown);
+  triangle::event!(shutdown => Shutdown);
 }
 
 pub fn events() -> &'static Events {
   EVENTS.get_or_init(Events::new)
-}
-pub fn events() -> &'static Events {
-  EVENTS.get_or_init(|| Events::new())
 }

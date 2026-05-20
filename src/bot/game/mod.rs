@@ -4,6 +4,7 @@ use parking_lot::{Mutex, RwLock};
 use thiserror::Error;
 use triangle::{
   Client, ClientOptions, Engine,
+  classes::ribbon,
   types::{
     events::recv,
     game::{Key, tick},
@@ -18,7 +19,7 @@ use crate::{
   bot::lib::{
     commands::{Commands, User},
     config::CONFIG,
-    events::{self, events, msgs},
+    events::{events, msgs},
   },
   engine::{
     Falcon,
@@ -106,17 +107,34 @@ pub enum BotError {
 
 impl Bot {
   pub async fn new(target: Target) -> Result<Arc<Self>, BotError> {
-    let client = Client::new(ClientOptions::with_token_and_handling(
-      env().token.clone(),
-      CONFIG.handling.clone(),
-    ))
+    let client = Client::new(ClientOptions {
+      game: Some(triangle::classes::GameOptions {
+        handling: Some(CONFIG.handling),
+        spectating_strategy: None,
+      }),
+      ribbon: Some(ribbon::OptionalParams {
+        options: Some(ribbon::Options {
+          logging: ribbon::LoggingLevel::All,
+          ..Default::default()
+        }),
+        ..Default::default()
+      }),
+      social: None,
+      token: triangle::Credentials::Token(env().token.clone()),
+      user_agent: None,
+    })
     .await
     .map_err(BotError::ConnectionError)?;
 
-		let room_update_data = Arc::new(Mutex::new(None));
-		client.once::<recv::room::Update>(async move |data| {
-			*room_update_data.lock() = Some(data);
-		}).await;
+
+    let (room_tx, room_rx) = tokio::sync::oneshot::channel::<recv::room::Update>();
+    let room_tx = Arc::new(Mutex::new(Some(room_tx)));
+
+    client.on::<recv::room::Update>(async move |data| {
+      if let Some(tx) = room_tx.lock().take() {
+        tx.send(data).ok();
+      }
+    });
 
     match target {
       Target::Join(roomid) => client.join_room(&roomid).await,
@@ -124,11 +142,9 @@ impl Bot {
     }
     .map_err(BotError::RoomError)?;
 
-		if room_update_data.lock().is_none() {
-			return Err(BotError::RoomError(WrapError::new("Failed to receive initial room data")));
-		}
-
-		let room_update_data = room_update_data.lock().clone().unwrap();
+    let room_update_data = room_rx
+      .await
+      .map_err(|_| BotError::RoomError(WrapError::ServerError))?;
 
     let bot = Arc::new(Bot {
       engine: Mutex::new(Falcon::new()),
@@ -168,21 +184,32 @@ impl Bot {
       )),
     });
 
-    bot.bind();
+
+    bot.handle_room_update(room_update_data).await;
+
+
+    if let Some(mut room) = bot.client.room() {
+      room.chat(":oyes:/").await.ok();
+    } else {
+      return Err(BotError::RoomError(WrapError::ServerError));
+    }
+
+
+    bot.bind().await;
     commands::register(&bot);
     bot.commands.lock().restrict(Restriction::None);
-
-    self.handle_room_update(room_update_data).await;
-    bot.client.room().unwrap().chat(":oyes:/").await.ok();
 
     Ok(bot)
   }
 
-  fn bind(self: &Arc<Self>) {
+  async fn bind(self: &Arc<Self>) {
     let b = self.clone();
-    events().on::<msgs::Shutdown>(async move |_| {
-      b.destroy().await;
-    });
+    events()
+      .on::<msgs::Shutdown>(async move |_| {
+        let b = b.clone();
+        b.destroy().await;
+      })
+      .await;
 
     let b = self.clone();
 
@@ -272,6 +299,7 @@ impl Bot {
         cmds.prepare_calls(user, &content, b2.clone(), move |message| {
           let bb = b2.clone();
           let msg = message.clone();
+					tracing::info!("sending message: {}", msg);
           tokio::spawn(async move {
             if let Some(mut room) = bb.client.room() {
               room.chat(&msg).await.ok();
@@ -386,6 +414,18 @@ impl Bot {
   async fn handle_room_update(self: &Arc<Self>, data: recv::room::Update) {
     let result = self.settings.check_room_update(&data);
     if let Some(result) = &result {
+      for output in &result.outputs {
+        if let Some(mut room) = self.client.room() {
+          room
+            .chat(&format!(
+              "{}: {}",
+              output.level.to_string().to_uppercase(),
+              output.message
+            ))
+            .await
+            .ok();
+        }
+      }
       if result.level == ConstraintLevel::Error {
         if let Some(mut room) = self.client.room() {
           room.switch(Bracket::Spectator).await.ok();
@@ -397,23 +437,13 @@ impl Bot {
         }
         return;
       }
-      if result.level == ConstraintLevel::Warning {
-        for output in &result.outputs {
-          if let Some(mut room) = self.client.room() {
-            room
-              .chat(&format!(
-                "{}: {}",
-                output.level.to_string().to_uppercase(),
-                output.message
-              ))
-              .await
-              .ok();
-          }
-        }
-      }
     }
     let attempt = self.state.read().enabled.attempt;
-    if result.is_none() && attempt {
+    if result
+      .as_ref()
+      .map_or(true, |r| r.level != ConstraintLevel::Error)
+      && attempt
+    {
       if let Some(mut room) = self.client.room() {
         room.switch(Bracket::Player).await.ok();
       }

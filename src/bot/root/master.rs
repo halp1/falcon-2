@@ -3,6 +3,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use triangle::{
   Client, ClientOptions,
+  classes::ribbon,
   types::{
     events::recv,
     social::{Detail, Status},
@@ -12,7 +13,10 @@ use triangle::{
 
 use crate::bot::{
   game::{Bot, Target},
-  lib::{env::env, events::{self, events}},
+  lib::{
+    env::env,
+    events::{events, msgs},
+  },
 };
 
 pub struct Master {
@@ -23,7 +27,20 @@ pub struct Master {
 impl Master {
   pub async fn new() -> Result<Self, ApiError> {
     let c = Master {
-      client: Client::new(ClientOptions::with_token(env().token.clone())).await?,
+      client: Client::new(ClientOptions {
+        game: None,
+        ribbon: Some(ribbon::OptionalParams {
+          options: Some(ribbon::Options {
+            logging: ribbon::LoggingLevel::Error,
+            ..Default::default()
+          }),
+          ..Default::default()
+        }),
+        social: None,
+        token: triangle::Credentials::Token(env().token.clone()),
+        user_agent: None,
+      })
+      .await?,
       children: Arc::new(Mutex::new(Vec::new())),
     };
 
@@ -73,10 +90,18 @@ impl Master {
     //   await this.destroy();
     // });
     let client = self.client.clone();
-    
-		events().on::<msgs::Shutdown>(async move |_| {
-      client.social.set_status(Status::Offline, Detail::Menus).await.ok();
-      client.destroy().await;
-    });
+
+    events()
+      .on::<msgs::Shutdown>(move |_| {
+        let client = client.clone();
+        async move {
+          client
+            .social
+            .set_status(Status::Offline, Detail::Menus)
+            .await;
+          client.destroy().await;
+        }
+      })
+      .await;
   }
 }
