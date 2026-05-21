@@ -159,6 +159,30 @@ impl SettingsHandler {
         let ok = data
           .options
           .as_ref()
+          .and_then(|o| o.g)
+          .map_or(false, |v| v == 0.0);
+        if !ok {
+          err("falcon requires 0 gravity.")
+        } else {
+          None
+        }
+      }),
+      Box::new(|data| {
+        let ok = data
+          .options
+          .as_ref()
+          .and_then(|o| o.gincrease)
+          .map_or(false, |v| v == 0.0);
+        if !ok {
+          err("falcon requires 0 gravity increase.")
+        } else {
+          None
+        }
+      }),
+      Box::new(|data| {
+        let ok = data
+          .options
+          .as_ref()
           .and_then(|o| o.locktime)
           .map_or(false, |v| v > 1);
         if !ok {

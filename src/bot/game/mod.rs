@@ -226,7 +226,7 @@ impl Bot {
       commands: cmd,
     });
 
-    bot.handle_room_update(room_update_data).await;
+    bot.handle_room_update(room_update_data, true).await;
 
     if let Some(mut room) = bot.client.room() {
       room.chat(":oyes:/").await.ok();
@@ -263,7 +263,7 @@ impl Bot {
     let b = self.clone();
 
     self.client.on::<recv::room::Update>(async move |data| {
-      b.handle_room_update(data).await;
+      b.handle_room_update(data, false).await;
     });
 
     let b = self.clone();
@@ -460,7 +460,7 @@ impl Bot {
       });
   }
 
-  async fn handle_room_update(self: &Arc<Self>, data: recv::room::Update) {
+  async fn handle_room_update(self: &Arc<Self>, data: recv::room::Update, initial: bool) {
     let result = self.settings.check_room_update(&data);
     if let Some(result) = &result {
       for output in &result.outputs {
@@ -484,6 +484,24 @@ impl Bot {
           state.enabled.attempt = true;
           state.enabled.value = false;
         }
+
+				tracing::info!("outputs: {:?}", result.outputs);
+
+        if initial
+          && result
+            .outputs
+            .iter()
+            .any(|o| o.message == "falcon requires 0 gravity increase.")
+          && result
+            .outputs
+            .iter()
+            .any(|o| o.message == "falcon requires 0 gravity.")
+        {
+          if let Some(mut room) = self.client.room() {
+            room.chat("Paste:\n\n/set options.g=0;options.gincrease=0;\n\nin chat and press enter to enable falcon.").await.ok();
+          }
+        }
+
         return;
       }
     }
