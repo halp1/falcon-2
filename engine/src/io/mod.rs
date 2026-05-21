@@ -3,15 +3,12 @@ use std::process::exit;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 
-use engine::{
-  game::{
-    Game, GameConfig, Garbage,
-    data::Move,
-    queue::{Bag, Queue},
-  },
-  keyfinder,
-  search::{beam_search, eval::WEIGHTS_HANDTUNED},
+use crate::game::{
+  Game, GameConfig, Garbage,
+  data::Move,
+  queue::{Bag, Queue},
 };
+use crate::search::{beam_search, eval::WEIGHTS_HANDTUNED};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -130,7 +127,7 @@ pub async fn start_server() {
 
           game.garbage.clear();
 
-          let mut keys = keyfinder::get_keys(
+          let mut keys = crate::keyfinder::get_keys(
             game.clone(),
             &config.clone().unwrap(),
             (mv.0.0, mv.0.1, mv.0.2, mv.0.4),

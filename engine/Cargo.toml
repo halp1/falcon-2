@@ -12,3 +12,6 @@ rayon = "1.10.0"
 rand = "0.9.1"
 serde = { version = "1.0.219", features = ["derive"] }
 triangle-rs = { path = "../triangle-rs" }
+tokio = "1.52.3"
+futures = "0.3.32"
+serde_json = "1.0.149"

@@ -4,7 +4,8 @@ bun.lock
 scripts
 perf.data
 perf.data.old
-logs
+/logs
+!logs.rs
 
 # dotenv environment variable files
 .env

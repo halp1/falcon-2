@@ -422,9 +422,12 @@ dependencies = [
 name = "falcon-engine"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "rand 0.9.4",
  "rayon",
  "serde",
+ "serde_json",
+ "tokio",
  "triangle-rs",
 ]
 
