@@ -81,13 +81,13 @@ const MOVES: [[Move; 9]; 9] = [
   [
     Move::CW,
     Move::CCW,
+    Move::Flip, // certain spins can only be done by doing a 180 twice
     Move::Left,
     Move::Right,
     Move::SoftDrop,
     Move::DasLeft,
     Move::DasRight,
     Move::HardDrop,
-    Move::None,
   ],
   // DasLeft
   [

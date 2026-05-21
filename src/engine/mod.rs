@@ -80,10 +80,10 @@ impl Falcon {
         keys.insert(0, Move::Hold);
       }
 
+      println!("-------------------------");
       self.game.print();
       println!("B2B: {}", self.game.b2b);
       println!("Time: {:.0}μs", elapsed * 1_000_000.0);
-      println!("-------------------------");
 
       self.game.hard_drop(&config);
 
