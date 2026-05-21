@@ -9,7 +9,6 @@ pub fn damage_calc(
   b2b_chaining: bool,
 ) -> f32 {
   assert!(lines <= 4, "Lines must be between 0 and 4");
-  // Skip formatting for next 7 lines
   #[rustfmt::skip]
 	let mut damage: f32 = match lines {
 		0 => 0.0,

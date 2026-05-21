@@ -3,10 +3,10 @@
 use std::{collections::HashSet, time::Instant};
 
 use crate::game::data::{KickTableData, MinoData};
-use crate::game::{BOARD_HEIGHT, BOARD_WIDTH, Game, GameConfig, data::Move};
+use crate::game::{data::Move, Game, GameConfig, BOARD_HEIGHT, BOARD_WIDTH};
 
 pub mod eval;
-use eval::{Weights, eval};
+use eval::{eval, Weights};
 use triangle::engine::queue::Mino;
 use triangle::types::game::Spin;
 
@@ -164,389 +164,6 @@ pub fn expand(
   (res_ptr, nodes)
 }
 
-fn floodfill(
-  collision_map: &[u64; BOARD_WIDTH + 2],
-  seed_position: (usize, usize),
-  work_stack: &mut [u64; BOARD_WIDTH * BOARD_HEIGHT],
-) -> [u64; BOARD_WIDTH + 2] {
-  // Initialize the result bitset to track all reachable positions
-  let mut reachable_positions = [0u64; BOARD_WIDTH + 2];
-
-  let (seed_x, seed_y) = seed_position;
-
-  // Stack pointers for BFS traversal
-  let mut stack_read_ptr = 0;
-  let mut stack_write_ptr = 0;
-
-  // Find the lowest reachable Y position in the seed column by dropping down
-  // to the first solid block (or bottom of board)
-  let blocks_below_seed = collision_map[seed_x] & ((1u64 << seed_y) - 1);
-  let floor_y = if blocks_below_seed == 0 {
-    0
-  } else {
-    (blocks_below_seed.trailing_zeros() as usize) + 1
-  };
-
-  // Add the starting position to the stack (packed as x in high 32 bits, y in low 32 bits)
-  work_stack[stack_write_ptr] = ((seed_x as u64) << 32) | floor_y as u64;
-  stack_write_ptr += 1;
-
-  // Process all positions in the stack using BFS
-  while stack_read_ptr < stack_write_ptr {
-    // Unpack the current position from the stack
-    let packed_position = work_stack[stack_read_ptr];
-    stack_read_ptr += 1;
-
-    let current_x = (packed_position >> 32) as usize;
-    let current_y = (packed_position & 0xFFFF_FFFF) as usize;
-    let position_bit = 1u64 << current_y;
-
-    // Skip if we've already visited this position
-    if reachable_positions[current_x] & position_bit != 0 {
-      continue;
-    }
-
-    // Mark this position as reachable
-    reachable_positions[current_x] |= position_bit;
-
-    // Check left neighbor column
-    if current_x > 0 && (collision_map[current_x - 1] & position_bit) == 0 {
-      // Find the floor position in the left column by dropping down
-      let blocks_below = collision_map[current_x - 1] & ((1u64 << current_y) - 1);
-      let floor_y_left = if blocks_below == 0 {
-        0
-      } else {
-        #[cfg(target_feature = "bmi1")]
-        unsafe {
-          _tzcnt_u64(blocks_below) as usize + 1
-        }
-        #[cfg(not(target_feature = "bmi1"))]
-        {
-          (blocks_below.trailing_zeros() as usize) + 1
-        }
-      };
-
-      // Add the floor position in the left column to the stack
-      work_stack[stack_write_ptr] = (((current_x - 1) as u64) << 32) | floor_y_left as u64;
-      stack_write_ptr += 1;
-    }
-
-    // Check right neighbor column
-    if current_x + 1 < BOARD_WIDTH + 2 && (collision_map[current_x + 1] & position_bit) == 0 {
-      // Find the floor position in the right column by dropping down
-      let blocks_below = collision_map[current_x + 1] & ((1u64 << current_y) - 1);
-      let floor_y_right = if blocks_below == 0 {
-        0
-      } else {
-        #[cfg(target_feature = "bmi1")]
-        unsafe {
-          _tzcnt_u64(blocks_below) as usize + 1
-        }
-        #[cfg(not(target_feature = "bmi1"))]
-        {
-          (blocks_below.trailing_zeros() as usize) + 1
-        }
-      };
-
-      // Add the floor position in the right column to the stack
-      work_stack[stack_write_ptr] = (((current_x + 1) as u64) << 32) | floor_y_right as u64;
-      stack_write_ptr += 1;
-    }
-  }
-
-  reachable_positions
-}
-
-pub fn expand_floodfill(
-  state: &mut Game,
-  config: &GameConfig,
-  passed: &mut [u64; BOARD_WIDTH * BOARD_HEIGHT],
-  res: &mut [(u8, u8, u8, Spin); 512],
-) -> (usize, u64) {
-  // Shortcut O-piece: single rotation, no kicks
-  if state.piece.mino == Mino::O {
-    let (sx, sy) = (state.piece.x as usize, state.piece.y as usize);
-    let reached = floodfill(&state.collision_map.states[0], (sx, sy), passed);
-    let mut res_ptr = 0;
-    for x in 0..BOARD_WIDTH {
-      let mut bits = reached[x];
-      while bits != 0 && res_ptr < 512 {
-        // get lowest set bit index
-        #[cfg(target_feature = "bmi1")]
-        let y = unsafe { _tzcnt_u64(bits) as u8 };
-        #[cfg(not(target_feature = "bmi1"))]
-        let y = bits.trailing_zeros() as u8;
-        bits &= bits - 1;
-        // only if can't move down - inline the test for O piece
-        if y > 0 && (state.collision_map.states[0][x] >> (y - 1)) & 1 != 0 {
-          res[res_ptr] = (x as u8, y, 0, Spin::None);
-          res_ptr += 1;
-        }
-      }
-    }
-    return (res_ptr, res_ptr as u64);
-  }
-
-  // Pre-compute piece-specific constants
-  let is_symmetric = matches!(state.piece.mino, Mino::S | Mino::Z | Mino::I);
-  let max_bounds = {
-    let mut max_dys = [0u8; 4];
-    let mut max_dxs = [0u8; 4];
-    for rot in 0..4 {
-      let blocks = state.piece.mino.rot(rot as u8);
-      max_dys[rot] = blocks.iter().map(|&(_, dy)| dy).max().unwrap();
-      max_dxs[rot] = blocks.iter().map(|&(dx, _)| dx).max().unwrap();
-    }
-    (max_dxs, max_dys)
-  };
-
-  // Reference collision maps directly (no clone)
-  let col_masks = &state.collision_map.states;
-  // Precompute drop-to-floor: for each rotation, column and y, the floor y
-  let mut drop_table = [[[0usize; BOARD_HEIGHT + 1]; BOARD_WIDTH + 2]; 4];
-  for rot in 0..4 {
-    for x in 0..BOARD_WIDTH + 2 {
-      let mask = col_masks[rot][x];
-      for y in 0..=BOARD_HEIGHT as usize {
-        let bits_below = mask & ((1u64 << y) - 1);
-        drop_table[rot][x][y] = if bits_below == 0 {
-          0
-        } else {
-          (bits_below.trailing_zeros() as usize) + 1
-        };
-      }
-    }
-  }
-
-  // Prepare buffers - removed unused spin_reachable
-  let mut stack = [0u64; BOARD_WIDTH * BOARD_HEIGHT];
-  let mut explored = [[0u64; BOARD_WIDTH + 2]; 4];
-  let mut newly = [[0u64; BOARD_WIDTH + 2]; 4];
-
-  // Seed each rotation with drop-to-floor + floodfill
-  let (sx, sy) = (state.piece.x as usize, state.piece.y as usize);
-
-  // For symmetric pieces, only process unique rotations initially
-  let unique_rots = if is_symmetric { 2 } else { 4 };
-
-  for rot in 0..unique_rots {
-    // Fast drop calculation
-    let below = col_masks[rot][sx] & ((1u64 << sy) - 1);
-    let fy = if below == 0 {
-      0
-    } else {
-      below.trailing_zeros() as usize + 1
-    };
-
-    let reached = floodfill(&col_masks[rot], (sx, fy), &mut stack);
-    explored[rot] = reached;
-    newly[rot] = reached;
-
-    // For symmetric pieces, mirror to paired rotation
-    if is_symmetric {
-      let paired_rot = rot + 2;
-      explored[paired_rot] = reached;
-      newly[paired_rot] = reached;
-    }
-  }
-
-  // Pre-flatten kick tests for this piece
-  let mino = state.piece.mino;
-  let mut kick_tests: [[&[(i8, i8)]; 4]; 4] = [[&[]; 4]; 4];
-  for from in 0..4 {
-    for to in 0..4 {
-      if from == to {
-        continue;
-      }
-      kick_tests[from][to] = config.kicks.data_fast(mino, from as u8, to as u8);
-    }
-  }
-  // Pre-flatten kick data for this piece
-  let mino = state.piece.mino;
-  let mut kick_tests: [[&[(i8, i8); 11]; 4]; 4] = [[&[(0i8, 0i8); 11]; 4]; 4];
-  for from in 0..4 {
-    for to in 0..4 {
-      if from == to {
-        continue;
-      }
-      kick_tests[from][to] = config.kicks.data_fast(mino, from as u8, to as u8);
-    }
-  }
-  // Kick-loop with optimized rotation pairs
-  loop {
-    // snapshot explored before applying kicks, so seeds aren’t considered old
-    let old_explored = explored;
-    let mut any = false;
-    let mut next_new = [[0u64; BOARD_WIDTH + 2]; 4];
-
-    // Optimized kick transitions
-    for rot_a in 0..4 {
-      for rot_b in 0..4 {
-        if rot_a == rot_b {
-          continue;
-        }
-
-        let kicks = kick_tests[rot_b][rot_a];
-
-        for &(dx, dy) in kicks.iter() {
-          // Process all columns with bits in parallel
-          for x in 0..BOARD_WIDTH + 2 {
-            let bits = newly[rot_b][x];
-            if bits == 0 {
-              continue;
-            }
-
-            let tx = x as i32 + dx as i32;
-            if tx < 0 || tx >= (BOARD_WIDTH + 2) as i32 {
-              continue;
-            }
-            let tx = tx as usize;
-
-            // Optimized shift
-            let shifted = if dy >= 0 {
-              bits << dy as usize
-            } else {
-              bits >> (-dy) as usize
-            };
-
-            let valid = shifted & !col_masks[rot_a][tx];
-            let new_bits = valid & !explored[rot_a][tx];
-
-            if new_bits != 0 {
-              explored[rot_a][tx] |= new_bits;
-              next_new[rot_a][tx] |= new_bits;
-              any = true;
-            }
-          }
-        }
-      }
-    }
-
-    if !any {
-      break;
-    }
-
-    // Incremental floodfill: expand both kick-only seeds and new flood seeds via BFS
-    let mut new_frontier = [[0u64; BOARD_WIDTH + 2]; 4];
-    for rot in 0..4 {
-      // snapshot explored before flood
-      let old = old_explored[rot];
-      // seeds are positions added by kicks (and previous flood)
-      let seeds = next_new[rot];
-      // visited mask starts at seeds
-      let mut visited = seeds;
-      // build BFS queue of seed positions
-      let mut read = 0usize;
-      let mut write = 0usize;
-      for x in 0..BOARD_WIDTH + 2 {
-        let mut bits = seeds[x];
-        while bits != 0 {
-          let y = bits.trailing_zeros() as usize;
-          bits &= bits - 1;
-          stack[write] = ((x as u64) << 32) | (y as u64);
-          write += 1;
-        }
-      }
-      // BFS floodfill from all seeds
-      while read < write {
-        let packed = stack[read];
-        read += 1;
-        let cx = (packed >> 32) as usize;
-        let cy = (packed & 0xFFFF_FFFF) as usize;
-        let bit = 1u64 << cy;
-        // left neighbor
-        if cx > 0 && (col_masks[rot][cx - 1] & bit) == 0 {
-          let below = col_masks[rot][cx - 1] & ((1u64 << cy) - 1);
-          let fy = if below == 0 {
-            0
-          } else {
-            (below.trailing_zeros() as usize) + 1
-          };
-          let nbit = 1u64 << fy;
-          if visited[cx - 1] & nbit == 0 {
-            visited[cx - 1] |= nbit;
-            stack[write] = (((cx - 1) as u64) << 32) | (fy as u64);
-            write += 1;
-          }
-        }
-        // right neighbor
-        if cx + 1 < BOARD_WIDTH + 2 && (col_masks[rot][cx + 1] & bit) == 0 {
-          let below = col_masks[rot][cx + 1] & ((1u64 << cy) - 1);
-          let fy = if below == 0 {
-            0
-          } else {
-            (below.trailing_zeros() as usize) + 1
-          };
-          let nbit = 1u64 << fy;
-          if visited[cx + 1] & nbit == 0 {
-            visited[cx + 1] |= nbit;
-            stack[write] = (((cx + 1) as u64) << 32) | (fy as u64);
-            write += 1;
-          }
-        }
-      }
-      // mark explored and build new frontier
-      for x in 0..BOARD_WIDTH + 2 {
-        let fresh = visited[x] & !old[x];
-        if fresh != 0 || seeds[x] != 0 {
-          explored[rot][x] |= fresh;
-          new_frontier[rot][x] = seeds[x] | fresh;
-        }
-      }
-    }
-    next_new = new_frontier;
-    newly = next_new;
-  }
-
-  // Apply canonical pruning for symmetric pieces
-  if is_symmetric {
-    for x in 0..BOARD_WIDTH + 2 {
-      let ns = explored[0][x] | explored[2][x];
-      explored[0][x] = ns;
-      explored[2][x] = ns;
-      let ew = explored[1][x] | explored[3][x];
-      explored[1][x] = ew;
-      explored[3][x] = ew;
-    }
-  }
-
-  // Extract results with optimized bounds checking
-  let mut res_ptr = 0;
-  let (max_dxs, max_dys) = max_bounds;
-
-  for rot in 0..4 {
-    let max_dx = max_dxs[rot] as usize;
-    let max_dy = max_dys[rot];
-
-    for x in max_dx..BOARD_WIDTH + 2 {
-      if x >= state.piece.mino.data().w.into()
-        && state.piece.mino.data().rots[rot]
-          .iter()
-          .any(|&(dx, _)| x - dx as usize >= BOARD_WIDTH)
-      {
-        continue;
-      }
-      let mut bits = explored[rot][x];
-      while bits != 0 && res_ptr < 512 {
-        let y = bits.trailing_zeros() as u8;
-        bits &= bits - 1;
-
-        if y < max_dy || y >= BOARD_HEIGHT as u8 {
-          continue;
-        }
-
-        // Optimized "can't move down" test - inline collision_map.test
-        if y > 0 && (col_masks[rot][x] >> (y - 1)) & 1 != 0 {
-          res[res_ptr] = (x as u8, y, rot as u8, Spin::None);
-          res_ptr += 1;
-        }
-      }
-    }
-  }
-
-  (res_ptr, res_ptr as u64)
-}
-
 #[derive(Clone, Debug)]
 struct SearchState {
   pub game: Game,
@@ -680,10 +297,6 @@ pub fn search(
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-// Assumes `SearchState`, `Game`, `GameConfig`, `Spin`,
-// `expand(&mut Game, &GameConfig, &mut [u64;2048], &mut [(u8,u8,u8,Spin);512]) -> (usize, _)`,
-// and `eval(&Game, u16, Vec<Spin>) -> i32` are defined elsewhere.
-
 const BEAM_WIDTH: usize = 1000;
 
 #[derive(Clone)]
@@ -705,21 +318,16 @@ impl PartialOrd for Candidate {
 }
 impl Ord for Candidate {
   fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-    // Min-heap via Reverse: higher scores are “greater”
     self.score.cmp(&other.score)
   }
 }
 
-/// Beam-search replacement for BFS-based Tetris search.
-///
-/// Signature matches the original `search` function.
 pub fn beam_search(
   root_game: Game,
   config: &GameConfig,
   max_depth: u8,
   weights: &Weights,
 ) -> Option<((u8, u8, u8, bool, Spin), Game)> {
-  // Initial SearchState
   let init_state = SearchState {
     game: root_game.clone(),
     depth: 0,
@@ -729,7 +337,6 @@ pub fn beam_search(
   };
   let init_score = eval(weights, &root_game, 0, Vec::new());
 
-  // Beam as min-heap of size BEAM_WIDTH
   let mut beam: BinaryHeap<Reverse<Candidate>> = BinaryHeap::with_capacity(BEAM_WIDTH);
   beam.push(Reverse(Candidate {
     state: init_state,
@@ -739,7 +346,6 @@ pub fn beam_search(
   let mut passed = [0u64; 2048];
   let mut res_buf = [(0u8, 0u8, 0u8, Spin::None); 512];
 
-  // Iterate placements
   for depth in 0..max_depth {
     let mut next_beam: BinaryHeap<Reverse<Candidate>> = BinaryHeap::with_capacity(BEAM_WIDTH);
 
@@ -751,7 +357,6 @@ pub fn beam_search(
           game_copy.hold();
           game_copy.regen_collision_map();
         }
-        // Expand moves
         let moves = expand(&mut game_copy, config, &mut passed, &mut res_buf);
 
         for i in 0..moves.0 {
@@ -768,7 +373,6 @@ pub fn beam_search(
             continue;
           }
 
-          // Build next SearchState
           let mut next_clears = cand.state.clears.clone();
           if let Some(c) = clear {
             next_clears.push(c);
@@ -791,7 +395,6 @@ pub fn beam_search(
             score,
           };
 
-          // Insert into next beam with pruning
           if next_beam.len() < BEAM_WIDTH {
             next_beam.push(Reverse(candidate));
           } else if let Some(Reverse(worst)) = next_beam.peek() {
@@ -810,206 +413,9 @@ pub fn beam_search(
     beam = next_beam;
   }
 
-  // Select best final candidate
   beam
     .into_iter()
     .map(|rev| rev.0)
     .max_by_key(|cand| cand.score)
     .and_then(|cand| cand.state.first_move.map(|m| (m, cand.state.game)))
-}
-
-// A* search implementation
-use std::collections::HashMap;
-
-#[derive(Clone)]
-struct AStarNode {
-  state: SearchState,
-  f_cost: i32,
-  g_cost: i32,
-}
-
-impl PartialEq for AStarNode {
-  fn eq(&self, other: &Self) -> bool {
-    self.f_cost == other.f_cost
-  }
-}
-
-impl Eq for AStarNode {}
-
-impl PartialOrd for AStarNode {
-  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-    Some(self.cmp(other))
-  }
-}
-
-impl Ord for AStarNode {
-  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-    self.f_cost.cmp(&other.f_cost)
-  }
-}
-
-fn board_hash(board: &[u64; BOARD_WIDTH]) -> u64 {
-  use std::collections::hash_map::DefaultHasher;
-  use std::hash::{Hash, Hasher};
-
-  let mut hasher = DefaultHasher::new();
-  board.hash(&mut hasher);
-  hasher.finish()
-}
-
-/// A* search for optimal Tetris play.
-/// Uses evaluation function as heuristic for maximum performance.
-pub fn astar_search(
-  root_game: Game,
-  config: &GameConfig,
-  max_depth: u8,
-  weights: &Weights,
-) -> Option<((u8, u8, u8, bool, Spin), Game)> {
-  let start = Instant::now();
-
-  // Priority queue (min-heap) for A* open set
-  let mut open_set: BinaryHeap<Reverse<AStarNode>> = BinaryHeap::with_capacity(16384);
-
-  // Track visited board states with their best g_cost to avoid revisiting worse paths
-  let mut visited: HashMap<u64, (i32, u8)> = HashMap::with_capacity(32768);
-
-  // Reusable buffers for expand function
-  let mut expand_passed = [0u64; 2048];
-  let mut expand_res = [(0u8, 0u8, 0u8, Spin::None); 512];
-
-  // Initialize with root state
-  let init_state = SearchState {
-    game: root_game.clone(),
-    depth: 0,
-    lines_sent: 0,
-    clears: Vec::new(),
-    first_move: None,
-  };
-
-  let init_eval = eval(weights, &root_game, 0, Vec::new());
-  let init_heuristic = -init_eval * (max_depth as i32 - 0);
-
-  let init_node = AStarNode {
-    state: init_state,
-    f_cost: init_heuristic,
-    g_cost: 0,
-  };
-
-  open_set.push(Reverse(init_node));
-
-  let mut nodes_expanded = 0u64;
-  let mut best_result: Option<(Game, i32, (u8, u8, u8, bool, Spin))> = None;
-
-  while let Some(Reverse(current)) = open_set.pop() {
-    nodes_expanded += 1;
-
-    // If we've reached max depth, evaluate and potentially update best
-    if current.state.depth >= max_depth {
-      let score = eval(
-        weights,
-        &current.state.game,
-        current.state.lines_sent,
-        current.state.clears.clone(),
-      );
-      if best_result.is_none() || score > best_result.as_ref().unwrap().1 {
-        if let Some(first_move) = current.state.first_move {
-          best_result = Some((current.state.game.clone(), score, first_move));
-        }
-      }
-      continue;
-    }
-
-    // Get board hash for visited check
-    let board_hash_val = board_hash(&current.state.game.board.cols);
-
-    // Skip if we've already visited this state with better or equal g_cost at same/better depth
-    if let Some(&(best_g, best_depth)) = visited.get(&board_hash_val) {
-      if best_g <= current.g_cost && best_depth <= current.state.depth {
-        continue;
-      }
-    }
-
-    visited.insert(board_hash_val, (current.g_cost, current.state.depth));
-
-    // Expand current node with and without hold
-    for use_hold in [false, true] {
-      let mut game_copy = current.state.game.clone();
-
-      if use_hold {
-        game_copy.hold();
-        game_copy.regen_collision_map();
-      }
-
-      // Get all possible moves
-      let (num_moves, _) = expand(&mut game_copy, config, &mut expand_passed, &mut expand_res);
-
-      for i in 0..num_moves {
-        let (x, y, rot, spin) = expand_res[i];
-        let mut next_game = game_copy.clone();
-        next_game.piece.x = x;
-        next_game.piece.y = y;
-        next_game.piece.rot = rot;
-        next_game.spin = spin;
-
-        let (lines, clear) = next_game.hard_drop(config);
-        next_game.regen_collision_map();
-
-        // Skip if game over
-        if next_game.topped_out() {
-          continue;
-        }
-
-        // Build successor state
-        let mut next_clears = current.state.clears.clone();
-        if let Some(c) = clear {
-          next_clears.push(c);
-        }
-
-        let next_sent = current.state.lines_sent + lines;
-        let next_depth = current.state.depth + 1;
-        let next_first = current
-          .state
-          .first_move
-          .or(Some((x, y, rot, use_hold, spin)));
-
-        let next_state = SearchState {
-          game: next_game.clone(),
-          depth: next_depth,
-          lines_sent: next_sent,
-          clears: next_clears.clone(),
-          first_move: next_first,
-        };
-
-        // Calculate costs
-        let step_cost = 1; // Uniform cost per move
-        let next_g_cost = current.g_cost + step_cost;
-
-        // Use negative evaluation as heuristic (higher eval = lower h_cost)
-        let eval_score = eval(weights, &next_game, next_sent, next_clears);
-        let remaining_depth = max_depth as i32 - next_depth as i32;
-        let h_cost = -eval_score * remaining_depth.max(1);
-
-        let f_cost = next_g_cost + h_cost;
-
-        let next_node = AStarNode {
-          state: next_state,
-          f_cost,
-          g_cost: next_g_cost,
-        };
-
-        open_set.push(Reverse(next_node));
-      }
-    }
-
-    // Early termination if we have good solution and searched enough
-    if nodes_expanded > 50000 && best_result.is_some() {
-      break;
-    }
-  }
-
-  let elapsed = start.elapsed();
-  println!("A* nodes expanded: {}", nodes_expanded);
-  println!("A* NPS: {}", nodes_expanded as f32 / elapsed.as_secs_f32());
-
-  best_result.map(|(game, _, first_move)| (first_move, game))
 }
