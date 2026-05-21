@@ -74,6 +74,13 @@ impl Master {
       };
     });
 
+    let client = self.client.clone();
+    self.client.on::<recv::client::DM>(async move |dm| {
+      if dm.content == "ping" {
+        client.social.dm(dm.user_id, "pong").await.ok();
+      }
+    });
+
     let mut client = self.client.clone();
 
     self.client.on::<recv::client::Dead>(async move |_| {
@@ -85,10 +92,6 @@ impl Master {
       }
     });
 
-    // events.on("shutdown", async () => {
-    //   this.#client.social.status("offline");
-    //   await this.destroy();
-    // });
     let client = self.client.clone();
 
     events()

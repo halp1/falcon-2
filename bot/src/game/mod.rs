@@ -226,7 +226,7 @@ impl Bot {
 
     bot.handle_room_update(room_update_data, true).await;
 
-    if let Some(mut room) = bot.client.room() {
+    if let Some(room) = bot.client.room() {
       room.chat(":oyes:/").await.ok();
     } else {
       return Err(BotError::RoomError(WrapError::ServerError));
@@ -291,7 +291,7 @@ impl Bot {
       let prefix = b.commands.prefix.clone();
 
       if data.content == format!("@{}", bot_username) {
-        if let Some(mut room) = b.client.room() {
+        if let Some(room) = b.client.room() {
           room.chat(&format!("My prefix is {}", prefix)).await.ok();
         }
         return;
@@ -345,7 +345,7 @@ impl Bot {
             let msg = message.clone();
             tracing::info!("sending message: {}", msg);
             tokio::spawn(async move {
-              if let Some(mut room) = bb.client.room() {
+              if let Some(room) = bb.client.room() {
                 room.chat(&msg).await.ok();
               }
             });
@@ -369,6 +369,17 @@ impl Bot {
       .on::<recv::client::room::Players>(async move |data| {
         if data.0.iter().all(|p| p.bot) {
           b.destroy().await;
+        }
+      });
+
+    let b = self.clone();
+    self
+      .client
+      .on::<recv::client::game::Start>(async move |data| {
+        if data.players.iter().any(|p| p.0 == b.client.user.id) {
+          if let Some(room) = b.client.room() {
+            room.chat("glhf!").await.ok();
+          }
         }
       });
 
@@ -440,6 +451,10 @@ impl Bot {
         }
 
         {
+          b.state.write().game = Some(GameState {
+            last_piece_frame: 0,
+            target_frame: 0,
+          });
           let target_frame = b.next_piece_frame(&engine, None);
           b.state.write().game = Some(GameState {
             last_piece_frame: engine.frame,
@@ -460,9 +475,10 @@ impl Bot {
 
   async fn handle_room_update(self: &Arc<Self>, data: recv::room::Update, initial: bool) {
     let result = self.settings.check_room_update(&data);
+
     if let Some(result) = &result {
-      for output in &result.outputs {
-        if let Some(mut room) = self.client.room() {
+      if let Some(room) = self.client.room() {
+        for output in &result.outputs {
           room
             .chat(&format!(
               "{}: {}",
@@ -483,8 +499,6 @@ impl Bot {
           state.enabled.value = false;
         }
 
-        tracing::info!("outputs: {:?}", result.outputs);
-
         if initial
           && result
             .outputs
@@ -495,7 +509,7 @@ impl Bot {
             .iter()
             .any(|o| o.message == "falcon requires 0 gravity.")
         {
-          if let Some(mut room) = self.client.room() {
+          if let Some(room) = self.client.room() {
             room.chat("Paste:\n\n/set options.g=0;options.gincrease=0;\n\nin chat and press enter to enable falcon.").await.ok();
           }
         }

@@ -389,6 +389,7 @@ dependencies = [
 name = "falcon"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "dotenvy",
  "falcon-bot",
  "falcon-engine",
@@ -404,6 +405,7 @@ dependencies = [
 name = "falcon-bot"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "clap",
  "falcon-engine",
  "futures",

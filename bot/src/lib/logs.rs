@@ -2,9 +2,10 @@ use std::{
   fs::{self, File},
   io::{self, Write},
   sync::Mutex,
-  time::{Instant, SystemTime, UNIX_EPOCH},
+  time::Instant,
 };
 
+use chrono::Local;
 use serde::Serialize;
 
 pub struct WSLogger {
@@ -15,11 +16,8 @@ pub struct WSLogger {
 impl WSLogger {
   pub fn new() -> io::Result<Self> {
     fs::create_dir_all("logs/ws")?;
-    let ts = SystemTime::now()
-      .duration_since(UNIX_EPOCH)
-      .unwrap_or_default()
-      .as_millis();
-    let file = File::create(format!("logs/ws/{}.log", ts))?;
+    let name = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+    let file = File::create(format!("logs/ws/{}.log", name))?;
     Ok(Self {
       file: Mutex::new(file),
       initial_time: Instant::now(),
@@ -37,6 +35,9 @@ impl WSLogger {
   }
 
   pub fn push(&self, event_type: &str, command: &str, data: &impl Serialize) {
+    if command == "ping" {
+      return;
+    }
     let ms = self.initial_time.elapsed().as_millis();
     let time_str = self.ms_to_string(ms);
     let padded_type = format!("{:>width$}", event_type, width = "receive".len());
