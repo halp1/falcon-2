@@ -1,4 +1,6 @@
-use crate::bot::lib::events::{events, msgs};
+#![allow(special_module_name)]
+
+use crate::lib::events::{events, msgs};
 
 pub mod game;
 pub mod lib;

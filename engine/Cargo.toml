@@ -1,0 +1,14 @@
+[package]
+name = "falcon-engine"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "engine"
+path = "src/lib.rs"
+
+[dependencies]
+rayon = "1.10.0"
+rand = "0.9.1"
+serde = { version = "1.0.219", features = ["derive"] }
+triangle-rs = { path = "../triangle-rs" }

@@ -2,8 +2,8 @@
 
 use std::{collections::HashSet, time::Instant};
 
-use crate::engine::game::data::{KickTableData, MinoData};
-use crate::engine::game::{BOARD_HEIGHT, BOARD_WIDTH, Game, GameConfig, data::Move};
+use crate::game::data::{KickTableData, MinoData};
+use crate::game::{BOARD_HEIGHT, BOARD_WIDTH, Game, GameConfig, data::Move};
 
 pub mod eval;
 use eval::{Weights, eval};

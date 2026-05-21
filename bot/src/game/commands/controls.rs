@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use triangle::types::room::Bracket;
 
-use crate::bot::lib::commands::{Commands, DefineParams, ListenerInput, Parameter};
+use crate::lib::commands::{Commands, DefineParams, ListenerInput, Parameter};
 
 use super::super::{Bot, Category, Finesse, Restriction};
 

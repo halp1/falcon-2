@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::bot::lib::commands::Commands;
+use crate::lib::commands::Commands;
 
 use super::{Bot, Category, Restriction};
 

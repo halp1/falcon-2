@@ -18,18 +18,16 @@ use triangle::{
 
 use triangle::engine::queue::bag::BagType;
 
-use crate::{
-  bot::lib::{
-    commands::{Commands, User},
-    config::CONFIG,
-    events::{events, msgs},
-    logs::WSLogger,
-  },
-  engine::{
-    Falcon,
-    game::{GameConfig, Garbage, data::Move, queue::Bag},
-  },
-  env,
+use crate::lib::{
+  commands::{Commands, User},
+  config::CONFIG,
+  env::env,
+  events::{events, msgs},
+  logs::WSLogger,
+};
+use engine::{
+  Falcon,
+  game::{GameConfig, Garbage, data::Move, queue::Bag},
 };
 use settings::{ConstraintLevel, SettingsHandler};
 
@@ -485,7 +483,7 @@ impl Bot {
           state.enabled.value = false;
         }
 
-				tracing::info!("outputs: {:?}", result.outputs);
+        tracing::info!("outputs: {:?}", result.outputs);
 
         if initial
           && result

@@ -8,7 +8,7 @@ use triangle::{
   types::game::{ComboTable, Spin, SpinBonuses},
 };
 
-use crate::engine::game::data::{KickTableData, MinoData};
+use crate::game::data::{KickTableData, MinoData};
 
 mod garbage;
 pub mod queue;

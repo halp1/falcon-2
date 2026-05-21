@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::bot::lib::commands::{CommandInfo, Commands, DefineParams, ListenerInput, Parameter};
+use crate::lib::commands::{CommandInfo, Commands, DefineParams, ListenerInput, Parameter};
 
 use super::super::{Bot, Category, Restriction};
 

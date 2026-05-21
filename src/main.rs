@@ -1,7 +1,5 @@
-use crate::bot::lib::env::{self, env};
+use bot::lib::env::{self, env};
 
-pub mod bot;
-pub mod engine;
 pub mod io;
 
 #[tokio::main]

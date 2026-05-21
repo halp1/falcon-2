@@ -86,12 +86,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "arrayvec"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
-
-[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -395,21 +389,43 @@ dependencies = [
 name = "falcon"
 version = "0.1.0"
 dependencies = [
- "arrayvec",
- "clap",
  "dotenvy",
+ "falcon-bot",
+ "falcon-engine",
+ "futures",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "falcon-bot"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "falcon-engine",
  "futures",
  "parking_lot",
  "rand 0.9.4",
- "rayon",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "triangle-rs",
  "validator",
+]
+
+[[package]]
+name = "falcon-engine"
+version = "0.1.0"
+dependencies = [
+ "rand 0.9.4",
+ "rayon",
+ "serde",
+ "triangle-rs",
 ]
 
 [[package]]
@@ -1003,7 +1019,10 @@ dependencies = [
 name = "msgpackr"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "num-bigint",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 
@@ -1031,6 +1050,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "num-bigint"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
+dependencies = [
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
+name = "num-integer"
+version = "0.1.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7969661fd2958a5cb096e56c8e1ad0444ac2bbcd0061bd28660485a44879858f"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
@@ -1963,6 +2001,7 @@ dependencies = [
  "bytes",
  "chrono",
  "colored",
+ "dotenvy",
  "futures-util",
  "msgpackr",
  "native-tls",
@@ -1979,6 +2018,7 @@ dependencies = [
  "tokio-native-tls",
  "tokio-tungstenite",
  "tracing",
+ "tracing-subscriber",
  "url",
  "urlencoding",
 ]

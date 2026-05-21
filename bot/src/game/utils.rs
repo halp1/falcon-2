@@ -1,7 +1,7 @@
 use rand::Rng;
 use triangle::types::game::Key;
 
-use crate::engine::game::data::Move;
+use engine::game::data::Move;
 
 pub fn frames_till_next_piece(pieces: u32, pps: f64, time: f64, min_pps: f64, max_pps: f64) -> f64 {
   let res = ((pieces as f64 + 1.0) / pps) * 60.0 - time;

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use triangle::types::game::Spin;
 
-use crate::engine::game::{BOARD_BUFFER, BOARD_HEIGHT, Game};
+use crate::game::{BOARD_BUFFER, BOARD_HEIGHT, Game};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Weights {

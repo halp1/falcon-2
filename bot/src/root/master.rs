@@ -11,7 +11,7 @@ use triangle::{
   utils::api::core::ApiError,
 };
 
-use crate::bot::{
+use crate::{
   game::{Bot, Target},
   lib::{
     env::env,

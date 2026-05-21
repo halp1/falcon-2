@@ -1,6 +1,6 @@
 use triangle::types::game::Spin;
 
-use crate::engine::game::data::MinoData;
+use crate::game::data::MinoData;
 
 use super::game::{Game, GameConfig, data::Move};
 

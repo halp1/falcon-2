@@ -3,7 +3,7 @@ use std::process::exit;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 
-use super::engine::{
+use engine::{
   game::{
     Game, GameConfig, Garbage,
     data::Move,
