@@ -1,164 +1,106 @@
 use serde::{Deserialize, Serialize};
 use triangle::types::game::Spin;
 
-use crate::game::{BOARD_BUFFER, BOARD_HEIGHT, Game};
+use crate::game::{BOARD_WIDTH, Game, HoleData};
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Weights {
-  pub height: i32,
-  pub upper_half_height: i32,
-  pub upper_quarter_height: i32,
-  pub center_height: i32,
+  pub outer_height: f64,
+  pub inner_height: f64,
+  pub unevenness: f64,
 
-  pub extra_wells: i32,
+  pub wells: [f64; BOARD_WIDTH],
 
-  pub clear_none: i32,
-  pub clear_mini: i32,
-  pub clear_normal: i32,
+  pub holes: HoleData<f64>,
 
-  pub sent: i32,
+  // spins
+  pub clear: [[f64; 4]; 3],
 
-  pub b2b: i32,
-  pub combo: i32,
+  pub t_hole: f64,
+  pub i_hole: f64,
 
-  pub holes: i32,
-  pub covered_holes: i32,
-  pub overstacked_holes: i32,
+  // waste mino type
+  pub waste: [f64; 7],
 
-  pub unevenness: i32,
+  pub sent: f64,
+
+  pub surge: f64,
+  pub combo: f64,
+  // TODO: kill chance/somehow boardwatching
+}
+
+pub struct MoveInfo {
+	pub clear: (Spin, u8),
+	pub sent: u16,
 }
 
 impl Weights {
-  pub fn mutate(&self, threshold: f32, change_factor: i32) -> Weights {
-    let mut new_weights = self.clone();
-    let get_multiplier = || {
-      let v = rand::random::<f32>();
-      if v < threshold {
-        0
-      } else if v < threshold + (1.0 - threshold) / 2.0 {
-        1
-      } else {
-        -1
-      }
+  pub fn eval(self: &Self, state: &Game, move_info: &MoveInfo) -> f64 {
+    let mut score = 0f64;
+
+    let heights = &state.board.column_heights();
+    let well = state.board.well(heights);
+
+    score += match well {
+      Some(idx) => self.wells[idx],
+      None => 0.0,
     };
 
-    new_weights.height = self.height + (change_factor * get_multiplier());
-    new_weights.upper_half_height = self.upper_half_height + (change_factor * get_multiplier());
-    new_weights.upper_quarter_height =
-      self.upper_quarter_height + (change_factor * get_multiplier());
-    new_weights.center_height = self.center_height + (change_factor * get_multiplier());
-    new_weights.extra_wells = self.extra_wells + (change_factor * get_multiplier());
-    new_weights.clear_none = self.clear_none + (change_factor * get_multiplier());
-    new_weights.clear_mini = self.clear_mini + (change_factor * get_multiplier());
-    new_weights.clear_normal = self.clear_normal + (change_factor * get_multiplier());
-    new_weights.sent = self.sent + (change_factor * get_multiplier());
-    new_weights.b2b = self.b2b + (change_factor * get_multiplier());
-    new_weights.combo = self.combo + (change_factor * get_multiplier());
-    new_weights.holes = self.holes + (change_factor * get_multiplier());
-    new_weights.covered_holes = self.covered_holes + (change_factor * get_multiplier());
-    new_weights.overstacked_holes = self.overstacked_holes + (change_factor * get_multiplier());
-    new_weights.unevenness = self.unevenness + (change_factor * get_multiplier());
+    let (outer, inner) = state.board.heights();
+    score += self.outer_height * outer as f64;
+    score += self.inner_height * inner as f64;
 
-    new_weights
+    score += self.unevenness * state.board.unevenness(heights, well) as f64;
+
+    score += if move_info.clear.1 == 0 {
+			0.0
+		} else {
+			self.clear[move_info.clear.0 as usize][move_info.clear.1 as usize - 1]
+		};
+
+    // TODO: hole types
+
+    // TODO: waste mino type
+
+    score += self.sent * move_info.sent as f64;
+
+    score += self.surge
+      * match state.b2b {
+        4.. => state.b2b as f64,
+        _ => 0.0,
+      };
+    score += self.combo * (state.combo + 1) as f64;
+
+    score
   }
 }
-
-const HEIGHT: i32 = (BOARD_HEIGHT - BOARD_BUFFER) as i32;
-const HEIGHT_HALF: i32 = HEIGHT / 2;
-const HEIGHT_QUARTER: i32 = HEIGHT / 4;
-
-const GENERAL_MULTIPLIER: i32 = 1000;
-const GENERAL_MULTIPLIER_F32: f32 = GENERAL_MULTIPLIER as f32;
 
 pub const WEIGHTS_HANDTUNED: Weights = Weights {
-  height: -50,
-  upper_half_height: -150,
-  upper_quarter_height: -300,
-  center_height: -100,
+  outer_height: -5.0,
+  inner_height: -10.0,
+	unevenness: -3.0,
 
-  extra_wells: -100,
+ wells: [-20.0, -30.0, -10.0, 0.0, 0.0, 0.0, 0.0, -10.0, -30.0, -20.0],
+ 
+ clear: [
+	 [-10.0, -10.0, -10.0, 50.0],
+	 [20.0, 25.0, 30.0, 60.0],
+	 [40.0, 80.0, 120.0, 180.0],
+ ],
 
-  clear_none: -70,
-  clear_mini: 70,
-  clear_normal: 140,
+  sent: 20.0,
 
-  sent: 0,
+  surge: 8.0,
+  combo: 3.0,
 
-  b2b: 80,
-  combo: 30,
+  holes: HoleData {
+		holes: -10.0,
+		depth: -5.0,
+		accessible: 0.0,
+		inaccessible: -20.0,
+	},
+	i_hole: 0.0,
+	t_hole: 0.0,
 
-  holes: -15,
-  covered_holes: -60,
-  overstacked_holes: -40,
-
-  unevenness: -30,
+	waste: [0.0; 7],
 };
-
-pub const WEIGHTS_4W: Weights = Weights {
-  height: -50,
-  upper_half_height: -150,
-  upper_quarter_height: -300,
-  center_height: -100,
-
-  extra_wells: -100,
-
-  clear_none: 70,
-  clear_mini: 140,
-  clear_normal: 140,
-
-  sent: 0,
-
-  b2b: 0,
-  combo: 10000,
-
-  holes: 0,
-  covered_holes: -60,
-  overstacked_holes: -40,
-
-  unevenness: -30,
-};
-
-pub fn eval(weights: &Weights, state: &Game, sent: u16, clears: Vec<Spin>) -> i32 {
-  let mut score = 0;
-
-  // state.print();
-  // println!(
-  //   "{} {} {} {} {}",
-  //   state.board.max_height(),
-  //   state.board.center_height(),
-  //   sent,
-  //   (state.b2b + 1),
-  //   state.board.count_holes()
-  // );
-
-  score += (state.board.max_height()) * GENERAL_MULTIPLIER / HEIGHT * weights.height;
-  score += (state.board.upper_half_height()) * GENERAL_MULTIPLIER / HEIGHT_HALF
-    * weights.upper_half_height;
-  score += (state.board.upper_quarter_height()) * GENERAL_MULTIPLIER / HEIGHT_QUARTER
-    * weights.upper_quarter_height;
-  score += (state.board.center_height()) * GENERAL_MULTIPLIER / HEIGHT * weights.center_height;
-
-  score += (state.board.wells()) * GENERAL_MULTIPLIER * weights.extra_wells;
-
-  for c in clears {
-    score += match c {
-      Spin::None => weights.clear_none,
-      Spin::Mini => weights.clear_mini,
-      Spin::Normal => weights.clear_normal,
-    } * GENERAL_MULTIPLIER;
-  }
-
-  score += sent as i32 * GENERAL_MULTIPLIER * weights.sent;
-
-  // add 1 so baseline is 0
-  score += ((((state.b2b + 2) as f32).ln()) * GENERAL_MULTIPLIER_F32) as i32 * weights.b2b;
-  score += (state.combo as i32 + 1) * GENERAL_MULTIPLIER * weights.combo;
-
-  score += state.board.count_holes() * GENERAL_MULTIPLIER * weights.holes;
-  score += state.board.covered_holes() * GENERAL_MULTIPLIER * weights.covered_holes;
-  score += state.board.overstacked_holes() * GENERAL_MULTIPLIER * weights.overstacked_holes;
-
-  score += state.board.unevenness() * GENERAL_MULTIPLIER * weights.unevenness;
-
-  score
-}

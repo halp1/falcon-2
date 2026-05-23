@@ -2,7 +2,6 @@ pub mod game;
 pub mod io;
 pub mod keyfinder;
 pub mod search;
-pub mod trainer;
 
 use game::{
   Game, GameConfig, Garbage,
@@ -112,92 +111,6 @@ impl Falcon {
         keys: vec![Move::HardDrop],
         time: elapsed,
       })
-    }
-  }
-}
-
-#[cfg(test)]
-pub mod tests {
-  use std::time::Instant;
-
-  use super::*;
-  use game::{BOARD_HEIGHT, BOARD_WIDTH, Game};
-  use search::eval::WEIGHTS_HANDTUNED;
-  use triangle::{
-    engine::{queue::Mino, utils::KickTable},
-    types::game::{ComboTable, Spin, SpinBonuses},
-  };
-
-  pub fn init() -> (game::GameConfig, Queue, Game) {
-    let config = game::GameConfig {
-      kicks: KickTable::SRSX,
-      spins: SpinBonuses::Handheld,
-      b2b_chaining: false,
-      b2b_charging: true,
-      b2b_charge_at: 0,
-      b2b_charge_base: 0,
-      pc_b2b: 1,
-      pc_send: 5,
-      combo_table: ComboTable::Multiplier,
-      garbage_multiplier: 1.0,
-      garbage_special_bonus: true,
-    };
-
-    let mut queue = Queue::new(Bag::Bag7, rand::random::<u64>(), 32, vec![Mino::Z]);
-
-    let game = game::Game::new(queue.shift(), queue.get_front_32());
-
-    (config, queue, game)
-  }
-
-  pub fn test_spins() {
-    let (config, _, _) = init();
-
-    let mut queue = Queue::new(Bag::Bag7, 0, 32, Vec::from([Mino::T]));
-
-    let mut game = game::Game::new(queue.shift(), queue.get_front_32());
-    println!("{}", game.piece.y);
-
-    let points = [(0, 0), (1, 0), (2, 0)];
-
-    for point in points.iter() {
-      game.board.set(point.0, point.1);
-    }
-
-    game.regen_collision_map();
-
-    println!("Initial board:");
-    game.print();
-
-    game.move_right();
-    game.soft_drop();
-    game.rotate(3, &config);
-
-    println!("{:?}", game.spin);
-
-    game.print();
-  }
-
-  pub fn test_game() {
-    let (config, _, _) = init();
-
-    let mut queue = Queue::new(Bag::Bag7, 0, 32, Vec::from([Mino::T]));
-
-    let mut game = game::Game::new(queue.shift(), queue.get_front_32());
-
-    let points = [
-      (0, 0),
-      (1, 0),
-      (2, 0),
-      (0, 1),
-      (0, 2),
-      (0, 3),
-      (1, 3),
-      (1, 4),
-    ];
-
-    for point in points.iter() {
-      game.board.set(point.0, point.1);
     }
   }
 }

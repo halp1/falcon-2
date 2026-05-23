@@ -112,7 +112,7 @@ pub fn train(config: &GameConfig, initial: Weights, num_players: usize, epochs: 
   .iter()
   .map(|p| {
     let mut pl = p.clone();
-    pl.weights = pl.weights.mutate(0.5, 20);
+		// todo: mutate or smt
     pl
   })
   .collect::<Vec<Player>>();
@@ -160,8 +160,8 @@ pub fn train(config: &GameConfig, initial: Weights, num_players: usize, epochs: 
     // redistribute & mutate in parallel
     players.par_iter_mut().enumerate().for_each(|(i, player)| {
       player.performance = 0;
-      let parent = &top_quart[i % top_quart.len()].weights;
-      player.weights = parent.clone().mutate(0.1, 3);
+      // let parent = &top_quart[i % top_quart.len()].weights;
+			// todo: mutate or smt
     });
   }
 

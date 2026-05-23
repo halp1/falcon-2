@@ -2,11 +2,11 @@
 
 use std::{collections::HashSet, time::Instant};
 
-use crate::game::data::{KickTableData, MinoData};
-use crate::game::{data::Move, Game, GameConfig, BOARD_HEIGHT, BOARD_WIDTH};
+use crate::game::{BOARD_WIDTH, Game, GameConfig, data::Move};
+use crate::search::eval::MoveInfo;
 
 pub mod eval;
-use eval::{eval, Weights};
+use eval::Weights;
 use triangle::engine::queue::Mino;
 use triangle::types::game::Spin;
 
@@ -168,8 +168,6 @@ pub fn expand(
 struct SearchState {
   pub game: Game,
   pub depth: u8,
-  pub lines_sent: u16,
-  pub clears: Vec<Spin>,
   pub first_move: Option<(u8, u8, u8, bool, Spin)>,
 }
 
@@ -179,7 +177,7 @@ pub fn search(
   max_depth: u8,
   weights: &Weights,
 ) -> Option<((u8, u8, u8, bool, Spin), Game)> {
-  let mut best_result: Option<(Game, i32, (u8, u8, u8, bool, Spin))> = None;
+  let mut best_result: Option<(Game, f64, (u8, u8, u8, bool, Spin))> = None;
 
   let mut queue: Vec<SearchState> = Vec::with_capacity(2usize.pow(19));
 
@@ -191,8 +189,6 @@ pub fn search(
   queue.push(SearchState {
     game: state,
     depth: 0,
-    lines_sent: 0,
-    clears: Vec::with_capacity(16),
     first_move: None,
   });
   let mut ptr = 0;
@@ -203,9 +199,7 @@ pub fn search(
   while ptr < queue.len() {
     let mut game_copy = queue[ptr].game.clone();
     let depth = queue[ptr].depth;
-    let lines_sent = queue[ptr].lines_sent;
     let first_move = queue[ptr].first_move;
-    let mut clears = queue[ptr].clears.clone();
     ptr += 1;
 
     let moves = expand(&mut game_copy, config, &mut expand_passed, &mut expand_res);
@@ -217,16 +211,13 @@ pub fn search(
         game_copy.piece.y = y;
         game_copy.piece.rot = rot;
         game_copy.spin = spin;
-        let (lines, clear) = game_copy.hard_drop(config);
-        if let Some(c) = clear {
-          clears.push(c);
-        }
+        let (sent, clear) = game_copy.hard_drop(config);
         nodes += 1;
         if game_copy.topped_out() {
           game_copy = queue[ptr - 1].game.clone();
           continue;
         }
-        let score = eval(weights, &game_copy, lines_sent + lines, clears.clone());
+        let score = weights.eval(&game_copy, &MoveInfo { clear, sent });
         if best_result.is_none() || score > best_result.as_ref().unwrap().1 {
           best_result = Some((
             game_copy.clone(),
@@ -244,7 +235,7 @@ pub fn search(
         game_copy.piece.y = y;
         game_copy.piece.rot = rot;
         game_copy.spin = spin;
-        let (lines, clear) = game_copy.hard_drop(config);
+        let (sent, clear) = game_copy.hard_drop(config);
         if !passed.insert(game_copy.board.cols.clone()) {
           game_copy = queue[ptr - 1].game.clone();
           continue;
@@ -259,15 +250,9 @@ pub fn search(
           continue;
         }
 
-        if let Some(c) = clear {
-          clears.push(c);
-        }
-
         queue.push(SearchState {
           game: game_copy.clone(),
           depth: depth + 1,
-          lines_sent: lines_sent + lines,
-          clears: clears.clone(),
           first_move: if first_move != None {
             first_move
           } else {
@@ -302,7 +287,7 @@ const BEAM_WIDTH: usize = 1000;
 #[derive(Clone)]
 struct Candidate {
   state: SearchState,
-  score: i32,
+  score: f64,
 }
 
 impl PartialEq for Candidate {
@@ -310,15 +295,17 @@ impl PartialEq for Candidate {
     self.score == other.score
   }
 }
-impl Eq for Candidate {}
 impl PartialOrd for Candidate {
   fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-    Some(self.cmp(other))
+    Some(self.score.total_cmp(&other.score))
   }
 }
+
+impl Eq for Candidate {}
+
 impl Ord for Candidate {
   fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-    self.score.cmp(&other.score)
+    self.partial_cmp(other).unwrap()
   }
 }
 
@@ -331,11 +318,15 @@ pub fn beam_search(
   let init_state = SearchState {
     game: root_game.clone(),
     depth: 0,
-    lines_sent: 0,
-    clears: Vec::new(),
     first_move: None,
   };
-  let init_score = eval(weights, &root_game, 0, Vec::new());
+  let init_score = weights.eval(
+    &root_game,
+    &MoveInfo {
+      clear: (Spin::None, 0),
+      sent: 0,
+    },
+  );
 
   let mut beam: BinaryHeap<Reverse<Candidate>> = BinaryHeap::with_capacity(BEAM_WIDTH);
   beam.push(Reverse(Candidate {
@@ -367,29 +358,22 @@ pub fn beam_search(
           g2.piece.rot = rot;
           g2.spin = spin;
 
-          let (lines, clear) = g2.hard_drop(config);
+          let (sent, clear) = g2.hard_drop(config);
           g2.regen_collision_map();
           if g2.topped_out() {
             continue;
           }
 
-          let mut next_clears = cand.state.clears.clone();
-          if let Some(c) = clear {
-            next_clears.push(c);
-          }
-          let next_sent = cand.state.lines_sent + lines;
           let next_depth = cand.state.depth + 1;
           let next_first = cand.state.first_move.or(Some((x, y, rot, n == 1, spin)));
 
           let next_state = SearchState {
             game: g2.clone(),
             depth: next_depth,
-            lines_sent: next_sent,
-            clears: next_clears.clone(),
             first_move: next_first,
           };
 
-          let score = eval(weights, &g2, next_sent, next_clears);
+          let score = weights.eval(&g2, &MoveInfo { clear, sent });
           let candidate = Candidate {
             state: next_state,
             score,
@@ -416,6 +400,10 @@ pub fn beam_search(
   beam
     .into_iter()
     .map(|rev| rev.0)
-    .max_by_key(|cand| cand.score)
+    .max_by(|a, b| {
+      a.score
+        .partial_cmp(&b.score)
+        .unwrap_or(std::cmp::Ordering::Equal)
+    })
     .and_then(|cand| cand.state.first_move.map(|m| (m, cand.state.game)))
 }

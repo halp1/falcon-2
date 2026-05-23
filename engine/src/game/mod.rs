@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 pub mod data;
 use garbage::damage_calc;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use triangle::{
   engine::{queue::Mino, utils::KickTable},
   types::game::{ComboTable, Spin, SpinBonuses},
@@ -18,10 +18,6 @@ pub const BOARD_WIDTH: usize = 10;
 pub const BOARD_HEIGHT: usize = 40;
 pub const BOARD_BUFFER: usize = 20;
 
-pub const BOARD_UPPER_HALF: usize = BOARD_HEIGHT / 2;
-pub const BOARD_UPPER_QUARTER: usize = BOARD_HEIGHT / 4 * 3;
-
-pub const CENTER_4: std::ops::Range<usize> = (BOARD_WIDTH / 2 - 2)..(BOARD_WIDTH / 2 + 2);
 pub const FULL_WIDTH: std::ops::Range<usize> = 0..BOARD_WIDTH;
 
 pub fn print_board(board: Vec<u64>, garbage_height: u8, highlight: (Mino, Vec<(u8, u8)>)) {
@@ -103,6 +99,14 @@ impl CollisionMap {
     }
     (self.states[rot as usize][x] >> y) & 1 != 0
   }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HoleData<T> {
+  pub holes: T,
+  pub depth: T,
+  pub accessible: T,
+  pub inaccessible: T,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -249,35 +253,87 @@ impl Board {
 
   // BOARD STATS
 
-  pub fn max_height(&self) -> i32 {
-    let mut max_h: i32 = 0;
-    for &col in &self.cols {
-      let h = (64u32 - col.leading_zeros()) as i32;
-      if h > max_h {
-        max_h = h;
-      }
+  #[inline(always)]
+  pub fn column_heights(&self) -> [u32; BOARD_WIDTH] {
+    std::array::from_fn(|i| 64 - self.cols[i].leading_zeros())
+  }
+
+  #[inline(always)]
+  pub fn heights(&self) -> (u32, u32) {
+    (
+      64 - self.cols[..(BOARD_WIDTH - 4) / 2]
+        .iter()
+        .chain(self.cols[(BOARD_WIDTH - 3)..].iter())
+        .fold(0, |acc, &val| acc | val)
+        .leading_zeros(),
+      64 - self.cols[(BOARD_WIDTH - 4) / 2..(BOARD_WIDTH - 3)]
+        .iter()
+        .fold(0, |acc, &val| acc | val)
+        .leading_zeros(),
+    )
+  }
+
+  #[inline(always)]
+  pub fn well(&self, heights: &[u32; BOARD_WIDTH]) -> Option<usize> {
+    let &min_v = heights.iter().min().unwrap();
+
+    let count = heights
+      .iter()
+      .map(|&h| (h == min_v) as usize)
+      .sum::<usize>();
+
+    if count == 1 {
+      Some(min_v as usize)
+    } else {
+      None
     }
-    max_h
   }
 
-  pub fn upper_half_height(&self) -> i32 {
-    return (self.max_height() - BOARD_UPPER_HALF as i32).max(0);
-  }
+  #[inline(always)]
+  pub fn holes(&self, heights: &[u32; BOARD_WIDTH]) -> HoleData<u32> {
+    let mut total_holes = 0;
+    let mut summed_depth = 0;
+    let mut accessible = 0;
+    let mut inaccessible = 0;
 
-  pub fn upper_quarter_height(&self) -> i32 {
-    return (self.max_height() - BOARD_UPPER_QUARTER as i32).max(0);
-  }
-
-  pub fn center_height(&self) -> i32 {
-    let mut max_h: i32 = 0;
-    for x in CENTER_4 {
+    for x in 0..BOARD_WIDTH {
       let col = self.cols[x];
-      let h = (64u32 - col.leading_zeros()) as i32;
-      if h > max_h {
-        max_h = h;
+      let hole_mask = !col & ((1 << heights[x]) - 1);
+
+      if hole_mask == 0 {
+        continue;
       }
+
+      let col_holes = hole_mask.count_ones();
+      total_holes += col_holes;
+
+      // check 3 blocks above the hole mask to determine accessibility
+      summed_depth += (col & (hole_mask << 1)).count_ones()
+        + (col & (hole_mask << 2)).count_ones()
+        + (col & (hole_mask << 3)).count_ones();
+
+      let activation_y = match x {
+        0..8 => std::cmp::max(heights[x + 1] + 1, heights[x + 2].saturating_sub(1)),
+        _ => u32::MAX,
+      }
+      .min(match x {
+        2..10 => std::cmp::max(heights[x - 1] + 1, heights[x - 2].saturating_sub(1)),
+        _ => u32::MAX,
+      });
+
+      let activation_mask = !0u64 << activation_y;
+      let col_accessible = (hole_mask & activation_mask).count_ones();
+
+      accessible += col_accessible;
+      inaccessible += col_holes - col_accessible;
     }
-    max_h
+
+    HoleData {
+      holes: total_holes,
+      depth: summed_depth,
+      accessible,
+      inaccessible,
+    }
   }
 
   pub fn count_holes(&self) -> i32 {
@@ -288,14 +344,17 @@ impl Board {
       .sum::<u32>() as i32
   }
 
-  pub fn unevenness(&self) -> i32 {
+  #[inline(always)]
+  pub fn unevenness(&self, heights: &[u32; BOARD_WIDTH], well: Option<usize>) -> i32 {
     let mut unevenness = 0;
-    let mut last = 64 - self.cols[0].leading_zeros();
+    let mut last = heights[0] as i32;
 
-    for col in self.cols.iter().skip(1) {
-      let h = 64 - col.leading_zeros();
-      unevenness += (last as i32 - h as i32).abs();
-      last = h;
+    for (i, &h) in heights.iter().skip(1).enumerate() {
+      if well.map_or(false, |w| w == i) {
+        continue;
+      }
+      unevenness += (last - h as i32).abs();
+      last = h as i32;
     }
 
     unevenness
@@ -783,7 +842,8 @@ impl Game {
     self.collision_map = self.board.collision_map(&self.piece);
   }
 
-  pub fn hard_drop(&mut self, config: &GameConfig) -> (u16, Option<Spin>) {
+  // Returns (sent garbage, (clear type + lines cleared))
+  pub fn hard_drop(&mut self, config: &GameConfig) -> (u16, (Spin, u8)) {
     // println!("HARD DROP {} {} {} {}", self.piece.mino.str(), self.piece.x, self.piece.y, self.piece.rot);
     self.soft_drop();
 
@@ -913,18 +973,12 @@ impl Game {
       }
     }
 
-    let clear_type = if cleared >= 4 {
-      Option::Some(Spin::Normal)
-    } else if cleared > 0 {
-      Option::Some(self.spin)
-    } else {
-      None
-    };
+    let clear_type = self.spin;
 
     self.spin = Spin::None;
 
     self.next_piece();
 
-    (sent, clear_type)
+    (sent, (clear_type, cleared))
   }
 }
