@@ -78,7 +78,7 @@ pub fn expand(
 ) -> (usize, u64) {
   passed.iter_mut().for_each(|m| *m = 0);
 
-  let mut queue = [(0, 0, 0, Spin::None, Move::None); 512];
+  let mut queue = [(0, 0, 0, Spin::None, Move::None);1024];
 
   let mut front_ptr = 0;
   let mut back_ptr = 1;
