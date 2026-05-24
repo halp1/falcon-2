@@ -4,8 +4,9 @@ mod spsa;
 use std::io::Write;
 
 use engine::game::GameConfig;
-use engine::search::eval::{WEIGHTS_HANDTUNED, Weights};
-use spsa::{SpsaConfig, build_scale, spsa_step, vec_to_weights, weights_to_vec};
+use engine::game::rng::RNG;
+use engine::search::eval::Weights;
+use spsa::{N_PARAMS, SpsaConfig, build_scale, spsa_step, vec_to_weights, weights_to_vec};
 use triangle::engine::utils::KickTable;
 use triangle::types::game::{ComboTable, SpinBonuses};
 
@@ -103,7 +104,17 @@ fn main() {
     .as_ref()
     .and_then(|p| std::fs::read_to_string(p).ok())
     .and_then(|s| serde_json::from_str(&s).ok())
-    .unwrap_or_else(|| WEIGHTS_HANDTUNED.clone());
+    .unwrap_or_else(|| {
+      let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+      let mut rng = RNG::new(seed);
+      let v: Vec<f64> = (0..N_PARAMS)
+        .map(|_| (rng.next() as i64 as f64) / (i64::MAX as f64) * 100.0)
+        .collect();
+      vec_to_weights(&v)
+    });
 
   println!(
     "spsa tuner | iter={} batch={} depth={} save_every={}",
