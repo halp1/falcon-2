@@ -28,36 +28,29 @@ impl Bag {
 }
 
 #[derive(Clone)]
-pub struct Queue {
+pub struct Queue<const N: usize> {
   pub bag: Bag,
   pub rng: RNG,
-  pub min_size: usize,
   pub queue: VecDeque<Mino>,
 }
 
-impl Queue {
-  pub fn new(bag: Bag, seed: u64, min_size: usize, initial: Vec<Mino>) -> Self {
-    assert!(min_size >= 32, "Bag min size must be at least 32");
+impl<const N: usize> Queue<N> {
+  pub fn new(bag: Bag, seed: u64, initial: Vec<Mino>) -> Self {
     let mut rng = RNG::new(seed);
 
-    let mut queue: VecDeque<Mino> = VecDeque::with_capacity(min_size + 7);
+    let mut queue: VecDeque<Mino> = VecDeque::with_capacity(N + 7);
 
     for m in initial.iter() {
       queue.push_back(*m);
     }
 
-    while queue.len() < min_size {
+    while queue.len() < N {
       for mino in rng.shuffle(bag.get_cycle()) {
         queue.push_back(mino);
       }
     }
 
-    Queue {
-      bag,
-      rng,
-      min_size,
-      queue,
-    }
+    Queue { bag, rng, queue }
   }
 
   pub fn shift(&mut self) -> Mino {
@@ -66,7 +59,7 @@ impl Queue {
       .pop_front()
       .unwrap_or_else(|| unreachable!("Queue is empty!"));
 
-    while self.queue.len() < self.min_size {
+    while self.queue.len() < N {
       for mino in self.rng.shuffle(self.bag.get_cycle()) {
         self.queue.push_back(mino);
       }
@@ -75,13 +68,7 @@ impl Queue {
     res
   }
 
-  pub fn get_front_32(&self) -> [Mino; 32] {
-    let mut res = [Mino::I; 32];
-
-    for i in 0usize..32 {
-      res[i] = *self.queue.get(i).unwrap_or(&Mino::I);
-    }
-
-    res
+  pub fn as_array(&self) -> [Mino; N] {
+    std::array::from_fn(|i| *self.queue.get(i).unwrap_or(&Mino::I))
   }
 }

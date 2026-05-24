@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use triangle::engine::{queue::Mino, utils::KickTable};
 
+use crate::game::{CollisionMap, StartState};
+
 use super::{Game, GameConfig};
 
 pub struct TetrominoMatrix {
@@ -1324,20 +1326,26 @@ pub enum Move {
 
 impl Move {
   #[inline(always)]
-  pub fn run(&self, game: &mut Game, config: &GameConfig) -> bool {
+  pub fn run(
+    &self,
+    game: &mut Game,
+    config: &GameConfig,
+    map: &CollisionMap,
+    start: &StartState,
+  ) -> bool {
     match self {
-      Move::Left => game.move_left(),
-      Move::Right => game.move_right(),
-      Move::SoftDrop => game.soft_drop(),
-      Move::CCW => game.rotate(3, config).0,
-      Move::CW => game.rotate(1, config).0,
-      Move::Flip => game.rotate(2, config).0,
+      Move::Left => game.move_left(&map),
+      Move::Right => game.move_right(&map),
+      Move::SoftDrop => game.soft_drop(&map),
+      Move::CCW => game.rotate(3, config, &map).0,
+      Move::CW => game.rotate(1, config, &map).0,
+      Move::Flip => game.rotate(2, config, &map).0,
       Move::None => panic!("None move called...cf"),
-      Move::DasLeft => game.das_left(),
-      Move::DasRight => game.das_right(),
-      Move::Hold => game.hold(),
+      Move::DasLeft => game.das_left(&map),
+      Move::DasRight => game.das_right(&map),
+      Move::Hold => game.hold(start),
       Move::HardDrop => {
-        game.soft_drop();
+        game.soft_drop(&map);
         true
       }
     }

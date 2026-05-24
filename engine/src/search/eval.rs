@@ -29,9 +29,18 @@ pub struct Weights {
   // TODO: kill chance/somehow boardwatching
 }
 
+impl HoleData<f64> {
+  pub fn eval(&self, other: &HoleData<u32>) -> f64 {
+    self.holes * other.holes as f64
+      + self.depth * other.depth as f64
+      + self.accessible * other.accessible as f64
+      + self.inaccessible * other.inaccessible as f64
+  }
+}
+
 pub struct MoveInfo {
-	pub clear: (Spin, u8),
-	pub sent: u16,
+  pub clear: (Spin, u8),
+  pub sent: u16,
 }
 
 impl Weights {
@@ -53,12 +62,12 @@ impl Weights {
     score += self.unevenness * state.board.unevenness(heights, well) as f64;
 
     score += if move_info.clear.1 == 0 {
-			0.0
-		} else {
-			self.clear[move_info.clear.0 as usize][move_info.clear.1 as usize - 1]
-		};
+      0.0
+    } else {
+      self.clear[move_info.clear.0 as usize][move_info.clear.1 as usize - 1]
+    };
 
-    // TODO: hole types
+    score += self.holes.eval(&state.board.holes(heights));
 
     // TODO: waste mino type
 
@@ -76,17 +85,19 @@ impl Weights {
 }
 
 pub const WEIGHTS_HANDTUNED: Weights = Weights {
-  outer_height: -5.0,
-  inner_height: -10.0,
-	unevenness: -3.0,
+  outer_height: -50.0,
+  inner_height: -100.0,
+  unevenness: -3.0,
 
- wells: [-20.0, -30.0, -10.0, 0.0, 0.0, 0.0, 0.0, -10.0, -30.0, -20.0],
- 
- clear: [
-	 [-10.0, -10.0, -10.0, 50.0],
-	 [20.0, 25.0, 30.0, 60.0],
-	 [40.0, 80.0, 120.0, 180.0],
- ],
+  wells: [
+    -20.0, -30.0, -10.0, 30.0, 20.0, 20.0, 30.0, -10.0, -30.0, -20.0,
+  ],
+
+  clear: [
+    [-10.0, -10.0, -10.0, 50.0],
+    [20.0, 25.0, 30.0, 60.0],
+    [40.0, 80.0, 120.0, 180.0],
+  ],
 
   sent: 20.0,
 
@@ -94,13 +105,13 @@ pub const WEIGHTS_HANDTUNED: Weights = Weights {
   combo: 3.0,
 
   holes: HoleData {
-		holes: -10.0,
-		depth: -5.0,
-		accessible: 0.0,
-		inaccessible: -20.0,
-	},
-	i_hole: 0.0,
-	t_hole: 0.0,
+    holes: -10.0,
+    depth: -5.0,
+    accessible: 0.0,
+    inaccessible: -20.0,
+  },
+  i_hole: 0.0,
+  t_hole: 0.0,
 
-	waste: [0.0; 7],
+  waste: [0.0; 7],
 };

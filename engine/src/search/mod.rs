@@ -2,167 +2,15 @@
 
 use std::{collections::HashSet, time::Instant};
 
-use crate::game::{BOARD_WIDTH, Game, GameConfig, data::Move};
+use crate::game::StartState;
+use crate::game::{BOARD_WIDTH, Game, GameConfig};
 use crate::search::eval::MoveInfo;
+use crate::search::movegen::expand;
 
 pub mod eval;
+pub mod movegen;
 use eval::Weights;
-use triangle::engine::queue::Mino;
 use triangle::types::game::Spin;
-
-const MOVES: [[Move; 6]; 7] = [
-  // None
-  [
-    Move::CW,
-    Move::CCW,
-    Move::Flip,
-    Move::Left,
-    Move::Right,
-    Move::SoftDrop,
-  ],
-  // Left
-  [
-    Move::CW,
-    Move::CCW,
-    Move::Flip,
-    Move::Left,
-    Move::SoftDrop,
-    Move::None,
-  ],
-  // Right
-  [
-    Move::CW,
-    Move::CCW,
-    Move::Flip,
-    Move::Right,
-    Move::SoftDrop,
-    Move::None,
-  ],
-  // Softdrop
-  [
-    Move::CW,
-    Move::CCW,
-    Move::Flip,
-    Move::Left,
-    Move::Right,
-    Move::None,
-  ],
-  // CCW
-  [
-    Move::CCW,
-    Move::Flip,
-    Move::Left,
-    Move::Right,
-    Move::SoftDrop,
-    Move::None,
-  ],
-  // CW
-  [
-    Move::CW,
-    Move::Flip,
-    Move::Left,
-    Move::Right,
-    Move::SoftDrop,
-    Move::None,
-  ],
-  // Flip
-  [
-    Move::CW,
-    Move::CCW,
-    Move::Left,
-    Move::Right,
-    Move::SoftDrop,
-    Move::None,
-  ],
-];
-
-pub fn expand(
-  mut state: &mut Game,
-  config: &GameConfig,
-  passed: &mut [u64; 2048],
-  res: &mut [(u8, u8, u8, Spin); 512],
-) -> (usize, u64) {
-  passed.iter_mut().for_each(|m| *m = 0);
-
-  let mut queue = [(0, 0, 0, Spin::None, Move::None); 512];
-
-  let mut front_ptr = 0;
-  let mut back_ptr = 1;
-  let mut res_ptr = 0;
-
-  let mut nodes = 0u64;
-
-  queue[0] = (
-    state.piece.x,
-    state.piece.y,
-    state.piece.rot,
-    Spin::None,
-    Move::None,
-  );
-
-  while front_ptr < back_ptr {
-    let (x, y, rot, spin, prev_mv) = queue[front_ptr];
-    front_ptr += 1;
-
-    for &mv in &MOVES[prev_mv as usize] {
-      nodes += 1;
-      if mv == Move::None {
-        break;
-      }
-      // Don't do these checks, because running the checks is more expensive
-      // if (last == Move::CCW && mv == Move::CW)
-      //     || (last == Move::CW && mv == Move::CCW)
-      //     || (last == Move::Flip && mv == Move::Flip)
-      //     || (last == Move::Left && mv == Move::Right)
-      //     || (last == Move::Right && mv == Move::Left)
-      //     || (last == Move::SoftDrop && mv == Move::SoftDrop)
-      // {
-      //     continue;
-      // }
-
-      state.piece.x = x;
-      state.piece.y = y;
-      state.piece.rot = rot;
-      state.spin = spin;
-
-      let fail = !mv.run(&mut state, config);
-
-      let mut compressed =
-        0u16 | (state.piece.x as u16 & 0b_1111) | ((state.piece.y as u16 & 0b_111111) << 4);
-
-      if state.piece.mino != Mino::O {
-        compressed |= ((state.piece.rot as u16 & 0b11) << 10) | ((state.spin as u16 & 0b11) << 12);
-      }
-
-      let idx = compressed as usize / 64;
-      let bit = 1 << (compressed % 64);
-
-      if mv == Move::SoftDrop && passed[1024 + idx] & bit == 0 {
-        passed[1024 + idx] |= bit;
-        res[res_ptr] = (state.piece.x, state.piece.y, state.piece.rot, state.spin);
-
-        res_ptr += 1;
-      }
-
-      if fail || passed[idx] & bit != 0 {
-        continue;
-      }
-
-      passed[idx] |= bit;
-
-      queue[back_ptr] = (
-        state.piece.x,
-        state.piece.y,
-        state.piece.rot,
-        state.spin,
-        mv,
-      );
-      back_ptr += 1;
-    }
-  }
-
-  (res_ptr, nodes)
-}
 
 #[derive(Clone, Debug)]
 struct SearchState {
@@ -174,6 +22,7 @@ struct SearchState {
 pub fn search(
   state: Game,
   config: &GameConfig,
+  start_state: &StartState,
   max_depth: u8,
   weights: &Weights,
 ) -> Option<((u8, u8, u8, bool, Spin), Game)> {
@@ -202,7 +51,16 @@ pub fn search(
     let first_move = queue[ptr].first_move;
     ptr += 1;
 
-    let moves = expand(&mut game_copy, config, &mut expand_passed, &mut expand_res);
+    let map = game_copy.collision_map();
+
+    let moves = expand(
+      &mut game_copy,
+      config,
+      &map,
+      &start_state,
+      &mut expand_passed,
+      &mut expand_res,
+    );
 
     if depth >= max_depth - 1 {
       for i in 0..moves.0 {
@@ -211,9 +69,9 @@ pub fn search(
         game_copy.piece.y = y;
         game_copy.piece.rot = rot;
         game_copy.spin = spin;
-        let (sent, clear) = game_copy.hard_drop(config);
+        let (sent, clear) = game_copy.hard_drop(config, &map, &start_state, depth);
         nodes += 1;
-        if game_copy.topped_out() {
+        if game_copy.topped_out(&map) {
           game_copy = queue[ptr - 1].game.clone();
           continue;
         }
@@ -235,17 +93,15 @@ pub fn search(
         game_copy.piece.y = y;
         game_copy.piece.rot = rot;
         game_copy.spin = spin;
-        let (sent, clear) = game_copy.hard_drop(config);
+        let (sent, clear) = game_copy.hard_drop(config, &map, &start_state, depth);
         if !passed.insert(game_copy.board.cols.clone()) {
           game_copy = queue[ptr - 1].game.clone();
           continue;
         }
 
-        game_copy.regen_collision_map();
-
         nodes += 1;
 
-        if game_copy.topped_out() {
+        if game_copy.topped_out_raw() {
           game_copy = queue[ptr - 1].game.clone();
           continue;
         }
@@ -282,8 +138,6 @@ pub fn search(
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-const BEAM_WIDTH: usize = 1000;
-
 #[derive(Clone)]
 struct Candidate {
   state: SearchState,
@@ -309,10 +163,10 @@ impl Ord for Candidate {
   }
 }
 
-pub fn beam_search(
+pub fn beam_search<const DEPTH: u8, const WIDTH: usize>(
   root_game: Game,
   config: &GameConfig,
-  max_depth: u8,
+  start_state: &StartState,
   weights: &Weights,
 ) -> Option<((u8, u8, u8, bool, Spin), Game)> {
   let init_state = SearchState {
@@ -328,7 +182,7 @@ pub fn beam_search(
     },
   );
 
-  let mut beam: BinaryHeap<Reverse<Candidate>> = BinaryHeap::with_capacity(BEAM_WIDTH);
+  let mut beam: BinaryHeap<Reverse<Candidate>> = BinaryHeap::with_capacity(WIDTH);
   beam.push(Reverse(Candidate {
     state: init_state,
     score: init_score,
@@ -337,18 +191,27 @@ pub fn beam_search(
   let mut passed = [0u64; 2048];
   let mut res_buf = [(0u8, 0u8, 0u8, Spin::None); 512];
 
-  for depth in 0..max_depth {
-    let mut next_beam: BinaryHeap<Reverse<Candidate>> = BinaryHeap::with_capacity(BEAM_WIDTH);
+  for depth in 0..DEPTH {
+    let mut next_beam: BinaryHeap<Reverse<Candidate>> = BinaryHeap::with_capacity(WIDTH);
 
     while let Some(Reverse(cand)) = beam.pop() {
       for n in 0..=1 {
         let mut game_copy = cand.state.game.clone();
 
         if n == 1 {
-          game_copy.hold();
-          game_copy.regen_collision_map();
+          game_copy.hold(&start_state);
         }
-        let moves = expand(&mut game_copy, config, &mut passed, &mut res_buf);
+
+        let map = game_copy.collision_map();
+
+        let moves = expand(
+          &mut game_copy,
+          config,
+          &map,
+          &start_state,
+          &mut passed,
+          &mut res_buf,
+        );
 
         for i in 0..moves.0 {
           let (x, y, rot, spin) = res_buf[i];
@@ -358,9 +221,9 @@ pub fn beam_search(
           g2.piece.rot = rot;
           g2.spin = spin;
 
-          let (sent, clear) = g2.hard_drop(config);
-          g2.regen_collision_map();
-          if g2.topped_out() {
+          let (sent, clear) = g2.hard_drop(config, &map, &start_state, depth);
+
+          if g2.topped_out_raw() {
             continue;
           }
 
@@ -379,7 +242,7 @@ pub fn beam_search(
             score,
           };
 
-          if next_beam.len() < BEAM_WIDTH {
+          if next_beam.len() < WIDTH {
             next_beam.push(Reverse(candidate));
           } else if let Some(Reverse(worst)) = next_beam.peek() {
             if score > worst.score {

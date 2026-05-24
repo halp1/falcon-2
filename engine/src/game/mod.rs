@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-
 pub mod data;
 use garbage::damage_calc;
 use serde::{Deserialize, Serialize};
@@ -70,27 +68,91 @@ pub struct CollisionMap {
   pub states: [[u64; BOARD_WIDTH + 2]; 4],
 }
 
+// impl CollisionMap {
+//   fn new(board: &[u64; BOARD_WIDTH], piece: &Falling) -> CollisionMap {
+//     let mut states = [[0u64; BOARD_WIDTH + 2]; 4];
+
+//     for rot in 0usize..4usize {
+//       for (dx, dy) in piece.mino.rot(rot as u8) {
+//         let dx = *dx as usize;
+//         for x in 0..BOARD_WIDTH + 2 {
+//           let col = if x >= dx && x - dx < BOARD_WIDTH {
+//             board.get(x - dx).copied().unwrap_or(!0u64)
+//           } else {
+//             !0u64
+//           };
+//           states[rot][x] |= !(!col << dy);
+//         }
+//       }
+//     }
+
+//     CollisionMap { states }
+//   }
+
+//   pub fn test(&self, x: u8, y: u8, rot: u8) -> bool {
+//     let x = x as usize;
+//     let y = y as usize;
+//     if x >= BOARD_WIDTH + 2 || y >= BOARD_HEIGHT {
+//       return true;
+//     }
+//     (self.states[rot as usize][x] >> y) & 1 != 0
+//   }
+// }
+
 impl CollisionMap {
-  fn new(board: &[u64; BOARD_WIDTH], piece: &Falling) -> CollisionMap {
+  #[inline(always)]
+  pub fn new(board: &[u64; BOARD_WIDTH], piece: &Falling) -> CollisionMap {
     let mut states = [[0u64; BOARD_WIDTH + 2]; 4];
 
-    for rot in 0usize..4usize {
-      for (dx, dy) in piece.mino.rot(rot as u8) {
-        let dx = *dx as usize;
-        for x in 0..BOARD_WIDTH + 2 {
-          let col = if x >= dx && x - dx < BOARD_WIDTH {
-            board.get(x - dx).copied().unwrap_or(!0u64)
-          } else {
-            !0u64
-          };
-          states[rot][x] |= !(!col << dy);
-        }
+    // 1. Algorithmic Padding: Map out-of-bounds logic directly to memory offsets.
+    // Placing the active board at index 8 leaves a safe buffer of !0u64 on both sides.
+    let mut padded = [!0u64; 32];
+    padded[8..8 + BOARD_WIDTH].copy_from_slice(board);
+
+    for rot in 0..4 {
+      let blocks = piece.mino.rot(rot as u8);
+
+      // 2. High-Level Inversion: Extract all 4 block coordinates at once
+      let (dx0, dy0) = (blocks[0].0 as usize, blocks[0].1 as usize);
+      let (dx1, dy1) = (blocks[1].0 as usize, blocks[1].1 as usize);
+      let (dx2, dy2) = (blocks[2].0 as usize, blocks[2].1 as usize);
+      let (dx3, dy3) = (blocks[3].0 as usize, blocks[3].1 as usize);
+
+      // Pre-calculate shift masks to avoid repeating math inside the unrolled sections
+      let mask0 = (1u64 << dy0) - 1;
+      let mask1 = (1u64 << dy1) - 1;
+      let mask2 = (1u64 << dy2) - 1;
+      let mask3 = (1u64 << dy3) - 1;
+
+      // 3. Complete Loop Flattening: Compute columns explicitly without internal loops.
+      // This mirrors your C++ inspiration by executing a flat, branchless pipeline.
+      macro_rules! compute_column {
+        ($x:expr) => {
+          unsafe {
+            // Parallel fetch from the padded board layout
+            let c0 = *padded.get_unchecked(8 + $x - dx0);
+            let c1 = *padded.get_unchecked(8 + $x - dx1);
+            let c2 = *padded.get_unchecked(8 + $x - dx2);
+            let c3 = *padded.get_unchecked(8 + $x - dx3);
+
+            // Bitwise identity substitution for !(!col << dy) -> (col << dy) | mask
+            states[rot][$x] = ((c0 << dy0) | mask0)
+              | ((c1 << dy1) | mask1)
+              | ((c2 << dy2) | mask2)
+              | ((c3 << dy3) | mask3);
+          }
+        };
+      }
+
+      for x in 0..BOARD_WIDTH + 2 {
+        compute_column!(x);
       }
     }
 
     CollisionMap { states }
   }
 
+  #[inline(always)]
   pub fn test(&self, x: u8, y: u8, rot: u8) -> bool {
     let x = x as usize;
     let y = y as usize;
@@ -220,14 +282,14 @@ impl Board {
     false
   }
 
-  pub fn insert_garbage(&mut self, amount: u8, column: u8) {
+  pub fn insert_garbage(&mut self, amount: u16, column: u8) {
     assert!((column as usize) < BOARD_WIDTH, "hole-column out of bounds");
 
     if amount == 0 {
       return;
     }
 
-    self.garbage = (self.garbage.saturating_add(amount)).min(BOARD_HEIGHT as u8) as u8;
+    self.garbage = (self.garbage.saturating_add(amount as u8)).min(BOARD_HEIGHT as u8);
 
     let all_mask = (1u64 << BOARD_HEIGHT) - 1;
     let bottom_mask = (1u64 << amount) - 1;
@@ -275,20 +337,28 @@ impl Board {
 
   #[inline(always)]
   pub fn well(&self, heights: &[u32; BOARD_WIDTH]) -> Option<usize> {
-    let &min_v = heights.iter().min().unwrap();
+    let mut min1_val = heights[0];
+    let mut min1_idx = 0;
+    let mut min2_val = u32::MAX;
 
-    let count = heights
-      .iter()
-      .map(|&h| (h == min_v) as usize)
-      .sum::<usize>();
+    for i in 1..BOARD_WIDTH {
+      let h = heights[i];
 
-    if count == 1 {
-      Some(min_v as usize)
+      if h < min1_val {
+        min2_val = min1_val;
+        min1_val = h;
+        min1_idx = i;
+      } else if h < min2_val {
+        min2_val = h;
+      }
+    }
+
+    if min1_val < min2_val {
+      Some(min1_idx)
     } else {
       None
     }
   }
-
   #[inline(always)]
   pub fn holes(&self, heights: &[u32; BOARD_WIDTH]) -> HoleData<u32> {
     let mut total_holes = 0;
@@ -312,16 +382,19 @@ impl Board {
         + (col & (hole_mask << 2)).count_ones()
         + (col & (hole_mask << 3)).count_ones();
 
-      let activation_y = match x {
-        0..8 => std::cmp::max(heights[x + 1] + 1, heights[x + 2].saturating_sub(1)),
-        _ => u32::MAX,
-      }
-      .min(match x {
-        2..10 => std::cmp::max(heights[x - 1] + 1, heights[x - 2].saturating_sub(1)),
-        _ => u32::MAX,
+      let activation_y = (if x < BOARD_WIDTH - 2 {
+        std::cmp::max(heights[x + 1], heights[x + 2].saturating_sub(2))
+      } else {
+        u32::MAX
+      })
+      .min(if x >= 2 {
+        std::cmp::max(heights[x - 1], heights[x - 2].saturating_sub(2))
+      } else {
+        u32::MAX
       });
 
       let activation_mask = !0u64 << activation_y;
+
       let col_accessible = (hole_mask & activation_mask).count_ones();
 
       accessible += col_accessible;
@@ -452,9 +525,15 @@ pub struct GameConfig {
   pub b2b_chaining: bool,
   pub combo_table: ComboTable,
   pub garbage_multiplier: f32,
+  pub garbage_cap: u16,
   pub pc_b2b: u16,
-  pub pc_send: u16,
+  pub pc_send: u8,
   pub garbage_special_bonus: bool,
+}
+
+pub struct StartState<'a> {
+  pub queue: &'a [Mino; 32],
+  pub garbage: &'a [Garbage],
 }
 
 #[derive(Deserialize)]
@@ -462,26 +541,25 @@ pub struct GameConfig {
 #[derive(Clone, Debug)]
 pub struct Garbage {
   pub col: u8,
-  pub amt: u8,
+  pub amt: u16,
   pub time: u8,
 }
 
 #[derive(Clone, Debug)]
 pub struct Game {
   pub board: Board,
-  pub queue: [Mino; 32],
   pub queue_ptr: usize,
   pub b2b: i16,
   pub combo: i16,
   pub hold: Option<Mino>,
   pub piece: Falling,
-  pub garbage: VecDeque<Garbage>,
-  pub collision_map: CollisionMap,
+  // index, tanked
+  pub garbage: (usize, u16),
   pub spin: Spin,
 }
 
 impl Game {
-  pub fn new(piece: Mino, queue: [Mino; 32]) -> Self {
+  pub fn new(piece: Mino) -> Self {
     let tetromino = piece.data();
     let board = Board::new();
     let piece = Falling {
@@ -491,18 +569,14 @@ impl Game {
       mino: piece,
     };
 
-    let collision_map = board.collision_map(&piece);
-
     Game {
       b2b: -1,
       combo: -1,
       board,
-      queue,
       queue_ptr: 0,
       hold: None,
       piece,
-      garbage: VecDeque::new(),
-      collision_map,
+      garbage: (0, 0),
       spin: Spin::None,
     }
   }
@@ -525,28 +599,25 @@ impl Game {
     );
   }
 
-  pub fn is_immobile(&self) -> bool {
-    self
-      .collision_map
-      .test(self.piece.x, self.piece.y + 1, self.piece.rot)
-      && self
-        .collision_map
-        .test(self.piece.x + 1, self.piece.y, self.piece.rot)
-      && self
-        .collision_map
-        .test(self.piece.x, self.piece.y - 1, self.piece.rot)
-      && self
-        .collision_map
-        .test(self.piece.x - 1, self.piece.y, self.piece.rot)
+  pub fn is_immobile(&self, collision_map: &CollisionMap) -> bool {
+    collision_map.test(self.piece.x, self.piece.y + 1, self.piece.rot)
+      && collision_map.test(self.piece.x + 1, self.piece.y, self.piece.rot)
+      && collision_map.test(self.piece.x, self.piece.y - 1, self.piece.rot)
+      && collision_map.test(self.piece.x - 1, self.piece.y, self.piece.rot)
   }
 
   // Returns (success, kicked)
-  pub fn rotate(&mut self, amount: u8, config: &GameConfig) -> (bool, bool) {
+  pub fn rotate(
+    &mut self,
+    amount: u8,
+    config: &GameConfig,
+    collision_map: &CollisionMap,
+  ) -> (bool, bool) {
     let to = (self.piece.rot + amount) % 4;
 
     let mut res = (false, false, false);
 
-    if !self.collision_map.test(self.piece.x, self.piece.y, to) {
+    if !collision_map.test(self.piece.x, self.piece.y, to) {
       self.piece.rot = to;
       res = (true, false, false);
     }
@@ -557,7 +628,7 @@ impl Game {
       let kickset = config.kicks.data_fast(self.piece.mino, from, to);
 
       for &(dx, dy) in kickset.iter() {
-        if !self.collision_map.test(
+        if !collision_map.test(
           (self.piece.x as i8 + dx) as u8,
           (self.piece.y as i8 - dy) as u8,
           to,
@@ -575,20 +646,25 @@ impl Game {
     }
 
     if res.0 {
-      self.update_spin(res.2, config);
+      self.update_spin(res.2, config, collision_map);
     }
 
     (res.0, res.1)
   }
 
   #[inline(always)]
-  pub fn update_spin(&mut self, is_tst_or_fin: bool, config: &GameConfig) {
+  pub fn update_spin(
+    &mut self,
+    is_tst_or_fin: bool,
+    config: &GameConfig,
+    collision_map: &CollisionMap,
+  ) {
     if config.spins == SpinBonuses::None {
       return;
     }
 
     let t_status = if self.piece.mino == Mino::T {
-      self.detect_spin(is_tst_or_fin)
+      self.detect_spin(is_tst_or_fin, collision_map)
     } else {
       Spin::None
     };
@@ -598,17 +674,14 @@ impl Game {
       | SpinBonuses::AllPlus
       | SpinBonuses::AllMini
       | SpinBonuses::AllMiniPlus
-      | SpinBonuses::MiniOnly => self.is_immobile(),
+      | SpinBonuses::MiniOnly => self.is_immobile(collision_map),
       _ => false,
     };
 
     self.spin = match config.spins {
       SpinBonuses::None => Spin::None,
       SpinBonuses::Stupid => {
-        if self
-          .collision_map
-          .test(self.piece.x, self.piece.y - 1, self.piece.rot)
-        {
+        if collision_map.test(self.piece.x, self.piece.y - 1, self.piece.rot) {
           Spin::Normal
         } else {
           Spin::None
@@ -677,12 +750,12 @@ impl Game {
           Spin::None
         }
       }
-      SpinBonuses::Handheld => self.detect_spin(is_tst_or_fin),
+      SpinBonuses::Handheld => self.detect_spin(is_tst_or_fin, collision_map),
     };
   }
 
   #[inline(always)]
-  pub fn detect_spin(&self, is_tst_or_fin: bool) -> Spin {
+  pub fn detect_spin(&self, is_tst_or_fin: bool, collision_map: &CollisionMap) -> Spin {
     let x = self.piece.x as i8;
     let y = self.piece.y as i8;
 
@@ -692,10 +765,7 @@ impl Game {
       return Spin::None;
     };
 
-    if !self
-      .collision_map
-      .test(x as u8, y as u8 - 1, self.piece.rot)
-    {
+    if !collision_map.test(x as u8, y as u8 - 1, self.piece.rot) {
       return Spin::None;
     }
 
@@ -733,11 +803,8 @@ impl Game {
     spin
   }
 
-  pub fn move_left(&mut self) -> bool {
-    if self
-      .collision_map
-      .test(self.piece.x - 1, self.piece.y, self.piece.rot)
-    {
+  pub fn move_left(&mut self, collision_map: &CollisionMap) -> bool {
+    if collision_map.test(self.piece.x - 1, self.piece.y, self.piece.rot) {
       return false;
     }
 
@@ -745,11 +812,8 @@ impl Game {
     true
   }
 
-  pub fn move_right(&mut self) -> bool {
-    if self
-      .collision_map
-      .test(self.piece.x + 1, self.piece.y, self.piece.rot)
-    {
+  pub fn move_right(&mut self, collision_map: &CollisionMap) -> bool {
+    if collision_map.test(self.piece.x + 1, self.piece.y, self.piece.rot) {
       return false;
     }
 
@@ -757,10 +821,10 @@ impl Game {
     true
   }
 
-  pub fn das_right(&mut self) -> bool {
+  pub fn das_right(&mut self, collision_map: &CollisionMap) -> bool {
     let mut x = self.piece.x;
     let mut moved = false;
-    while !self.collision_map.test(x + 1, self.piece.y, self.piece.rot) {
+    while !collision_map.test(x + 1, self.piece.y, self.piece.rot) {
       moved = true;
       x += 1;
     }
@@ -770,10 +834,10 @@ impl Game {
     moved
   }
 
-  pub fn das_left(&mut self) -> bool {
+  pub fn das_left(&mut self, collision_map: &CollisionMap) -> bool {
     let mut x = self.piece.x;
     let mut moved = false;
-    while !self.collision_map.test(x - 1, self.piece.y, self.piece.rot) {
+    while !collision_map.test(x - 1, self.piece.y, self.piece.rot) {
       moved = true;
       x -= 1;
     }
@@ -783,16 +847,12 @@ impl Game {
     moved
   }
 
-  pub fn soft_drop(&mut self) -> bool {
+  pub fn soft_drop(&mut self, collision_map: &CollisionMap) -> bool {
     let piece_x = self.piece.x;
     let mut piece_y = self.piece.y;
     let mut moved = false;
 
-    while piece_y > 0
-      && !self
-        .collision_map
-        .test(piece_x, piece_y - 1, self.piece.rot)
-    {
+    while piece_y > 0 && !collision_map.test(piece_x, piece_y - 1, self.piece.rot) {
       moved = true;
       piece_y -= 1;
     }
@@ -802,7 +862,7 @@ impl Game {
     moved
   }
 
-  pub fn hold(&mut self) -> bool {
+  pub fn hold(&mut self, start_state: &StartState) -> bool {
     if let Some(hold) = self.hold {
       self.hold = Some(self.piece.mino);
       self.piece.mino = hold;
@@ -810,17 +870,17 @@ impl Game {
       self.piece.x = ((BOARD_WIDTH + tetromino.w as usize) / 2) as u8 - 1;
       self.piece.y = (BOARD_HEIGHT - BOARD_BUFFER) as u8 + 2;
     } else {
-      assert!(self.queue_ptr < self.queue.len(), "Queue is empty");
+      assert!(self.queue_ptr < start_state.queue.len(), "Queue is empty");
       self.hold = Some(self.piece.mino);
-      self.next_piece();
+      self.next_piece(start_state);
     }
 
     true
   }
 
-  pub fn next_piece(&mut self) {
-    assert!(self.queue.len() > 0, "Queue is empty");
-    let next = self.queue[self.queue_ptr];
+  pub fn next_piece(&mut self, start_state: &StartState) {
+    assert!(self.queue_ptr < start_state.queue.len(), "Queue is empty");
+    let next = start_state.queue[self.queue_ptr];
     self.queue_ptr += 1;
 
     self.piece.mino = next;
@@ -832,20 +892,33 @@ impl Game {
     self.piece.rot = 0;
   }
 
-  pub fn topped_out(&self) -> bool {
-    self
-      .collision_map
-      .test(self.piece.x, self.piece.y, self.piece.rot)
+  pub fn topped_out(&self, collision_map: &CollisionMap) -> bool {
+    collision_map.test(self.piece.x, self.piece.y, self.piece.rot)
   }
 
-  pub fn regen_collision_map(&mut self) {
-    self.collision_map = self.board.collision_map(&self.piece);
+  #[inline(always)]
+  pub fn topped_out_raw(&self) -> bool {
+    self.piece.blocks().iter().any(|&(x, y)| {
+      self
+        .board
+        .is_occupied(self.piece.x as i8 - x as i8, self.piece.y as i8 - y as i8)
+    })
+  }
+
+  pub fn collision_map(&self) -> CollisionMap {
+    self.board.collision_map(&self.piece)
   }
 
   // Returns (sent garbage, (clear type + lines cleared))
-  pub fn hard_drop(&mut self, config: &GameConfig) -> (u16, (Spin, u8)) {
+  pub fn hard_drop(
+    &mut self,
+    config: &GameConfig,
+    collision_map: &CollisionMap,
+    state: &StartState,
+    timer: u8,
+  ) -> (u16, (Spin, u8)) {
     // println!("HARD DROP {} {} {} {}", self.piece.mino.str(), self.piece.x, self.piece.y, self.piece.rot);
-    self.soft_drop();
+    self.soft_drop(collision_map);
 
     let blocks = self.piece.blocks();
 
@@ -935,7 +1008,7 @@ impl Game {
       + garbage_special_bonus) as u16;
 
     if pc {
-      sent += config.pc_send;
+      sent += config.pc_send as u16;
     }
 
     if let Some(b2b) = broke_b2b {
@@ -945,31 +1018,41 @@ impl Game {
       }
     }
 
+    let gb_len = state.garbage.len();
+
     if cleared > 0 {
-      while sent > 0 && !self.garbage.is_empty() {
-        let g = self.garbage.front_mut().unwrap();
+      while sent > 0 && self.garbage.0 < gb_len {
+        let amt = state.garbage[self.garbage.0].amt;
 
-        let g16 = g.amt as u16;
-
-        if g16 > sent {
-          g.amt -= sent as u8;
+        if amt > sent {
+          self.garbage.1 = amt - sent;
           sent = 0;
           break;
         } else {
-          sent -= g16;
-          self.garbage.pop_front();
+          sent -= amt;
+          self.garbage.0 += 1;
+          self.garbage.1 = 0;
         }
       }
     } else {
-      while !self.garbage.is_empty() && self.garbage.front().unwrap().time == 0 {
-        let g = self.garbage.pop_front().unwrap();
-        self.board.insert_garbage(g.amt, g.col);
-      }
-    }
+      let mut tanked = 0;
+      while self.garbage.0 < gb_len
+        && tanked < config.garbage_cap
+        && state.garbage[self.garbage.0].time <= timer
+      {
+        let amt =
+          (tanked - config.garbage_cap).min(state.garbage[self.garbage.0].amt - self.garbage.1);
+        tanked += amt;
+        self
+          .board
+          .insert_garbage(amt, state.garbage[self.garbage.0].col);
 
-    for g in self.garbage.iter_mut() {
-      if g.time > 0 {
-        g.time -= 1;
+        if amt == state.garbage[self.garbage.0].amt - self.garbage.1 {
+          self.garbage.0 += 1;
+          self.garbage.1 = 0;
+        } else {
+          self.garbage.1 += amt;
+        }
       }
     }
 
@@ -977,7 +1060,7 @@ impl Game {
 
     self.spin = Spin::None;
 
-    self.next_piece();
+    self.next_piece(state);
 
     (sent, (clear_type, cleared))
   }

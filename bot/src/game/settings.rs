@@ -64,9 +64,9 @@ impl SettingsHandler {
           .options
           .as_ref()
           .and_then(|o| o.spinbonuses.as_ref())
-          .map_or(false, |v| *v == SpinBonuses::AllMiniPlus);
+          .map_or(false, |v| matches!(v, SpinBonuses::AllMiniPlus | SpinBonuses::AllPlus));
         if !ok {
-          err("falcon does not support spin bonuses outside of all-mini+.")
+          err("falcon does not support spin bonuses outside of all-mini+ and all+.")
         } else {
           None
         }

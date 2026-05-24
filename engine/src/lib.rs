@@ -4,7 +4,7 @@ pub mod keyfinder;
 pub mod search;
 
 use game::{
-  Game, GameConfig, Garbage,
+  Game, GameConfig, Garbage, StartState,
   data::Move,
   queue::{Bag, Queue},
 };
@@ -17,7 +17,7 @@ pub struct StepResult {
 }
 
 pub struct Falcon {
-  queue: Queue,
+  queue: Queue<32>,
   game: Game,
   config: Option<GameConfig>,
 }
@@ -30,8 +30,8 @@ impl Default for Falcon {
 
 impl Falcon {
   pub fn new() -> Self {
-    let mut queue = Queue::new(Bag::Bag7, 0, 32, Vec::new());
-    let game = Game::new(queue.shift(), queue.get_front_32());
+    let mut queue = Queue::new(Bag::Bag7, 0, Vec::new());
+    let game = Game::new(queue.shift());
     Self {
       queue,
       game,
@@ -40,40 +40,44 @@ impl Falcon {
   }
 
   pub fn start(&mut self, config: GameConfig, seed: u64, bag: Bag) {
-    self.queue = Queue::new(bag, seed, 32, Vec::new());
+    self.queue = Queue::new(bag, seed, Vec::new());
     self.config = Some(config);
-    self.game = Game::new(self.queue.shift(), self.queue.get_front_32());
+    self.game = Game::new(self.queue.shift());
   }
 
   pub fn insert_garbage(&mut self, garbage: Vec<Garbage>) {
     for gb in garbage {
       self.game.board.insert_garbage(gb.amt, gb.col);
     }
-    self.game.regen_collision_map();
   }
 
   pub fn step(&mut self, garbage: Vec<Garbage>) -> Option<StepResult> {
     let config = self.config.clone()?;
-    self.game.garbage = garbage.into();
+    self.game.garbage = (0, 0);
+
+    let queue_arr = self.queue.as_array();
+    let start_state = StartState {
+      queue: &queue_arr,
+      garbage: garbage.as_slice(),
+    };
 
     let start_time = std::time::Instant::now();
-    let choice = beam_search(self.game.clone(), &config, 5, &WEIGHTS_HANDTUNED);
+    let choice = beam_search::<7, 1000>(self.game.clone(), &config, &start_state, &WEIGHTS_HANDTUNED);
     let elapsed = start_time.elapsed().as_secs_f64();
 
     if let Some(mv) = choice {
       let mut double_shift = false;
       if mv.0.3 {
         double_shift = self.game.hold.is_none();
-        self.game.hold();
-        self.game.regen_collision_map();
+        self.game.hold(&start_state);
       }
 
-      self.game.garbage.clear();
+      let map = self.game.collision_map();
 
       let mut keys = get_keys(self.game.clone(), &config, (mv.0.0, mv.0.1, mv.0.2, mv.0.4));
 
       for key in keys.iter() {
-        key.run(&mut self.game, &config);
+        key.run(&mut self.game, &config, &map, &start_state);
       }
 
       if mv.0.3 {
@@ -85,32 +89,145 @@ impl Falcon {
       println!("B2B: {}", self.game.b2b);
       println!("Time: {:.0}μs", elapsed * 1_000_000.0);
 
-      self.game.hard_drop(&config);
+      self.game.hard_drop(&config, &map, &start_state, 0);
 
       if double_shift {
         self.queue.shift();
       }
       self.queue.shift();
-      self.game.queue = self.queue.get_front_32();
       self.game.queue_ptr = 0;
-
-      self.game.regen_collision_map();
 
       Some(StepResult {
         keys,
         time: elapsed,
       })
     } else {
-      self.game.hard_drop(&config);
+      let map = self.game.collision_map();
+      self.game.hard_drop(&config, &map, &start_state, 0);
       self.queue.shift();
-      self.game.queue = self.queue.get_front_32();
       self.game.queue_ptr = 0;
-      self.game.regen_collision_map();
 
       Some(StepResult {
         keys: vec![Move::HardDrop],
         time: elapsed,
       })
     }
+  }
+}
+
+#[cfg(test)]
+pub mod tests {
+
+  use super::*;
+  use game::Game;
+  use triangle::{
+    engine::{queue::Mino, utils::KickTable},
+    types::game::{ComboTable, SpinBonuses},
+  };
+
+  pub fn init() -> (game::GameConfig, Queue<32>, Game) {
+    let config = game::GameConfig {
+      kicks: KickTable::SRSX,
+      spins: SpinBonuses::Handheld,
+      b2b_chaining: false,
+      b2b_charging: true,
+      b2b_charge_at: 0,
+      b2b_charge_base: 0,
+      pc_b2b: 1,
+      pc_send: 5,
+      combo_table: ComboTable::Multiplier,
+      garbage_multiplier: 1.0,
+      garbage_cap: 8,
+      garbage_special_bonus: true,
+    };
+
+    let mut queue = Queue::<32>::new(Bag::Bag7, rand::random::<u64>(), vec![Mino::Z]);
+
+    let game = game::Game::new(queue.shift());
+
+    (config, queue, game)
+  }
+
+  pub fn test_spins() {
+    let (config, _, _) = init();
+
+    let mut queue = Queue::<32>::new(Bag::Bag7, 0, vec![Mino::T]);
+
+    let mut game = game::Game::new(queue.shift());
+    println!("{}", game.piece.y);
+
+    let points = [(0, 0), (1, 0), (2, 0)];
+
+    for point in points.iter() {
+      game.board.set(point.0, point.1);
+    }
+
+    let map = game.collision_map();
+
+    println!("Initial board:");
+    game.print();
+
+    game.move_right(&map);
+    game.soft_drop(&map);
+    game.rotate(3, &config, &map);
+
+    println!("{:?}", game.spin);
+
+    game.print();
+  }
+
+  #[test]
+  pub fn test_game() {
+    // let (config, _, _) = init();
+
+    let mut queue = Queue::<32>::new(Bag::Bag7, 0, vec![Mino::T]);
+
+    let mut game = game::Game::new(queue.shift());
+
+    let points = [
+      (0, 0),
+      (1, 0),
+      (2, 0),
+      (3, 0),
+      (4, 0),
+      (5, 0),
+      // (6, 0),
+      (7, 0),
+      (8, 0),
+      (9, 0),
+      (0, 1),
+      (1, 1),
+      (2, 1),
+      // (3, 1),
+      (4, 1),
+      (5, 1),
+      (6, 1),
+      // (7, 1),
+      // (8, 1),
+      (9, 1),
+      (0, 2),
+      (1, 2),
+      (2, 2),
+      (3, 2),
+      (4, 2),
+      (5, 2),
+      (6, 2),
+      (7, 2),
+      // (8, 2),
+      (9, 2),
+    ];
+
+    for point in points.iter() {
+      game.board.set(point.0, point.1);
+    }
+
+    game.print();
+
+    let heights = &game.board.column_heights();
+    println!("heights: {:?}", heights);
+    println!("split heights: {:?}", game.board.heights());
+    println!("well: {:?}", game.board.well(heights));
+
+    println!("holes: {:?}", game.board.holes(heights));
   }
 }

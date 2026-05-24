@@ -4,7 +4,7 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 
 use crate::game::{
-  Game, GameConfig, Garbage,
+  Game, GameConfig, Garbage, StartState,
   data::Move,
   queue::{Bag, Queue},
 };
@@ -72,22 +72,21 @@ pub async fn start_server() {
     .await
     .unwrap();
 
-  let mut queue = Queue::new(Bag::Bag7, 0, 32, Vec::new());
-  let mut game = Game::new(queue.shift(), queue.get_front_32());
+  let mut queue = Queue::<32>::new(Bag::Bag7, 0, Vec::new());
+  let mut game = Game::new(queue.shift());
   let mut config = Option::<GameConfig>::None;
   while let Some(msg) = incoming.next().await {
     match msg {
       Incoming::Start(start) => {
-        queue = Queue::new(start.bag, start.seed, 32, Vec::new());
+        queue = Queue::<32>::new(start.bag, start.seed, Vec::new());
         config = Option::from(start.config);
-        game = Game::new(queue.shift(), queue.get_front_32());
+        game = Game::new(queue.shift());
       }
 
       Incoming::InsertGarbage(garbage) => {
         for gb in garbage.garbage {
           game.board.insert_garbage(gb.amt, gb.col);
         }
-        game.regen_collision_map();
       }
 
       Incoming::Step(cfg) => {
@@ -100,7 +99,11 @@ pub async fn start_server() {
             .unwrap();
           exit(1);
         }
-        game.garbage = cfg.garbage.into();
+        let start_state = StartState {
+          garbage: cfg.garbage.as_slice(),
+          queue: &queue.as_array(),
+        };
+        game.garbage = (0, 0);
 
         // println!(
         //   "SEARCHING THROUGH: <{}> {:?}",
@@ -109,10 +112,11 @@ pub async fn start_server() {
         // );
 
         let start = std::time::Instant::now();
-        let choice = beam_search(
+
+        let choice = beam_search::<7, 1000>(
           game.clone(),
           &(config.clone()).unwrap(),
-          20,
+          &start_state,
           &WEIGHTS_HANDTUNED,
         );
         let elapsed = start.elapsed().as_secs_f64();
@@ -121,11 +125,8 @@ pub async fn start_server() {
           let mut double_shift = false;
           if mv.0.3 {
             double_shift = game.hold.is_none();
-            game.hold();
-            game.regen_collision_map();
+            game.hold(&start_state);
           }
-
-          game.garbage.clear();
 
           let mut keys = crate::keyfinder::get_keys(
             game.clone(),
@@ -133,8 +134,10 @@ pub async fn start_server() {
             (mv.0.0, mv.0.1, mv.0.2, mv.0.4),
           );
 
+          let map = game.collision_map();
+
           for key in keys.iter() {
-            key.run(&mut game, &config.clone().unwrap());
+            key.run(&mut game, &config.clone().unwrap(), &map, &start_state);
           }
 
           if mv.0.3 {
@@ -144,13 +147,20 @@ pub async fn start_server() {
           game.print();
           println!("B2B: {}", game.b2b);
 
-          game.hard_drop(&config.clone().unwrap());
+          game.hard_drop(
+            &config.clone().unwrap(),
+            &map,
+            &StartState {
+              queue: &queue.as_array(),
+              garbage: &[],
+            },
+            0,
+          );
 
           if double_shift {
             queue.shift();
           }
           queue.shift();
-          game.queue = queue.get_front_32();
           game.queue_ptr = 0;
 
           outgoing
@@ -161,9 +171,13 @@ pub async fn start_server() {
             .await
             .unwrap();
         } else {
-          game.hard_drop(&config.clone().unwrap());
+          game.hard_drop(
+            &config.clone().unwrap(),
+            &game.collision_map(),
+            &start_state,
+            0,
+          );
           queue.shift();
-          game.queue = queue.get_front_32();
           game.queue_ptr = 0;
           outgoing
             .send(Outgoing::Result {
@@ -173,7 +187,6 @@ pub async fn start_server() {
             .await
             .unwrap();
         }
-        game.regen_collision_map();
       }
     }
   }

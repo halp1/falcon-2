@@ -423,6 +423,7 @@ impl Bot {
                 .unwrap_or(0),
               combo_table: engine.initializer.options.combo_table,
               garbage_multiplier: engine.initializer.garbage.multiplier.value as f32,
+              garbage_cap: engine.initializer.garbage.cap.value as u16,
               garbage_special_bonus: engine.initializer.garbage.special_bonus,
               kicks: engine.initializer.kick_table,
               pc_b2b: engine
@@ -435,7 +436,7 @@ impl Bot {
                 .initializer
                 .pc
                 .as_ref()
-                .map(|pc| pc.garbage as u16)
+                .map(|pc| pc.garbage as u8)
                 .unwrap_or(0),
               spins: engine.initializer.options.spin_bonuses,
             },
@@ -725,7 +726,7 @@ impl Bot {
           .iter()
           .map(|g| Garbage {
             col: g.column as u8,
-            amt: g.amount as u8,
+            amt: g.amount as u16,
             time: 0,
           })
           .collect(),
@@ -789,7 +790,7 @@ impl Bot {
       .queue
       .iter()
       .map(|g| Garbage {
-        amt: g.amount as u8,
+        amt: g.amount as u16,
         col: 0,
         time: 0,
       })

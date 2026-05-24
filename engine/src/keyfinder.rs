@@ -1,6 +1,6 @@
-use triangle::types::game::Spin;
+use triangle::{engine::queue::Mino, types::game::Spin};
 
-use crate::game::data::MinoData;
+use crate::game::{StartState, data::MinoData};
 
 use super::game::{Game, GameConfig, data::Move};
 
@@ -156,6 +156,13 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
 
   let game = state.clone();
 
+  let map = state.collision_map();
+
+	let start_state = StartState {
+		garbage: &[],
+		queue: &[Mino::I; 32],
+	};
+
   while front_ptr < back_ptr {
     let (x, y, rot, spin, moves) = queue[front_ptr];
     front_ptr += 1;
@@ -170,7 +177,7 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
       state.piece.y = y;
       state.piece.rot = rot;
 
-      let fail = !mv.run(&mut state, config);
+      let fail = !mv.run(&mut state, config, &map, &start_state);
 
       if mv == Move::HardDrop {
         if state.piece.rot % 2 == tgt_2
