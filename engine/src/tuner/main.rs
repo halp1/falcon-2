@@ -21,7 +21,7 @@ fn default_config() -> GameConfig {
     pc_send: 5,
     combo_table: ComboTable::Multiplier,
     garbage_multiplier: 1.0,
-		garbage_cap: 8,
+    garbage_cap: 8,
     garbage_special_bonus: true,
   }
 }
@@ -66,7 +66,7 @@ fn main() {
   let mut depth = 6u8;
   let mut save_every = 50usize;
   let mut input_path: Option<String> = None;
-  let mut output_path = String::from("weights_tuned.json");
+  let mut output_path = String::from("tuning/weights_tuned.json");
 
   let mut i = 1;
   while i < args.len() {
@@ -113,6 +113,8 @@ fn main() {
   print_key_weights(&initial_weights);
   std::io::stdout().flush().ok();
 
+  std::fs::create_dir_all("tuning").ok();
+
   let config = default_config();
   let cfg = SpsaConfig {
     n_batch: batch,
@@ -156,7 +158,7 @@ fn main() {
       if recent_avg > best_win_rate {
         best_win_rate = recent_avg;
         best_theta = theta.clone();
-        write_weights("weights_best.json", &vec_to_weights(&best_theta));
+        write_weights("tuning/weights_best.json", &vec_to_weights(&best_theta));
       }
     }
 
@@ -176,7 +178,7 @@ fn main() {
     }
 
     if (k + 1) % save_every == 0 {
-      let path = format!("weights_{:06}.json", k + 1);
+      let path = format!("tuning/weights_{:06}.json", k + 1);
       write_weights(&path, &vec_to_weights(&theta));
       println!("  → snapshot {}", path);
       std::io::stdout().flush().ok();
@@ -202,8 +204,8 @@ fn main() {
   println!("final weights saved → {}", output_path);
 
   let best_w = vec_to_weights(&best_theta);
-  write_weights("weights_best.json", &best_w);
-  println!("best weights saved  → weights_best.json");
+  write_weights("tuning/weights_best.json", &best_w);
+  println!("best weights saved  → tuning/weights_best.json");
 
   println!("\nfinal weights:");
   print_key_weights(&final_w);

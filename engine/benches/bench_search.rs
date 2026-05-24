@@ -40,8 +40,8 @@ fn bench_beam_search(c: &mut Criterion) {
     garbage: &[],
   };
 
-  c.bench_function("beam_search d7/w1000", |b| {
-    b.iter(|| beam_search::<7, 1000>(game.clone(), &config, &start_state, &WEIGHTS_HANDTUNED))
+  c.bench_function("beam_search d7/w200", |b| {
+    b.iter(|| beam_search::<7, 200>(game.clone(), &config, &start_state, &WEIGHTS_HANDTUNED))
   });
 }
 

@@ -1,4 +1,5 @@
 /target
+/engine/tuning
 node_modules
 bun.lock
 scripts

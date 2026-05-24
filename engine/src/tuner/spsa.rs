@@ -23,8 +23,8 @@ pub struct SpsaConfig {
 impl Default for SpsaConfig {
   fn default() -> Self {
     SpsaConfig {
-      a: 0.01,
-      c: 0.05,
+      a: 5.0,
+      c: 0.1,
       alpha: 0.602,
       gamma: 0.101,
       big_a: 100.0,
@@ -33,7 +33,7 @@ impl Default for SpsaConfig {
       max_moves: 800,
       seed: 0x1337_CAFE,
       conv_window: 50,
-      conv_threshold: 0.003,
+      conv_threshold: 1e-5,
     }
   }
 }
@@ -155,13 +155,12 @@ pub fn spsa_step(
 
   let net = 2.0 * win_rate_plus - 1.0;
 
-  // scale-invariant gradient estimate
   let mut new_theta = theta.to_vec();
   let mut total_delta = 0.0f64;
   for i in 0..n {
-    let grad_i = net / (2.0 * c_k) * delta[i] / scale[i];
+    let grad_i = net * delta[i] / (2.0 * c_k * scale[i]);
     let step = a_k * grad_i * scale[i];
-    new_theta[i] -= step;
+    new_theta[i] += step;
     total_delta += step.abs();
   }
   let avg_delta = total_delta / n as f64;

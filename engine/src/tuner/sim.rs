@@ -6,13 +6,6 @@ use engine::search::eval::Weights;
 use rayon::prelude::*;
 use triangle::types::game::Spin;
 
-#[derive(PartialEq, Eq)]
-pub enum MatchResult {
-  WinA,
-  WinB,
-  Draw,
-}
-
 fn apply_move(
   game: &mut Game,
   mv: (u8, u8, u8, bool, Spin),
@@ -49,7 +42,7 @@ pub fn run_match(
   config: &GameConfig,
   _depth: u8,
   max_moves: u32,
-) -> MatchResult {
+) -> f64 {
   let mut queue_a = Queue::<32>::new(Bag::Bag7, seed, vec![]);
   let mut queue_b = Queue::<32>::new(Bag::Bag7, seed, vec![]);
   let mut game_a = Game::new(queue_a.shift());
@@ -58,26 +51,25 @@ pub fn run_match(
   let mut garbage_b: Vec<Garbage> = Vec::new();
   let mut rng_a = RNG::new(seed ^ 0xDEAD_BEEF);
   let mut rng_b = RNG::new(seed ^ 0xCAFE_BABE);
+  let mut sent_a_total: u32 = 0;
+  let mut sent_b_total: u32 = 0;
 
-  let start = std::time::Instant::now();
-
-  for i in 0..max_moves {
+  for _ in 0..max_moves {
     let (sent_a, remaining_a, double_shift_a, map_a) = {
       let queue_arr = queue_a.as_array();
       let state = StartState {
         garbage: garbage_a.as_slice(),
         queue: &queue_arr,
       };
-      let mv = match beam_search::<7, 1000>(game_a.clone(), config, &state, weights_a) {
-        None => return MatchResult::WinB,
+      let mv = match beam_search::<7, 60>(game_a.clone(), config, &state, weights_a) {
+        None => return 0.0,
         Some((mv, _)) => mv,
       };
       apply_move(&mut game_a, mv, config, &state)
     };
     garbage_a = remaining_a;
     for g in &mut garbage_a {
-      assert!(g.time > 0, "garbage timer already 0");
-      g.time -= 1;
+      g.time = g.time.saturating_sub(1);
     }
     if double_shift_a {
       queue_a.shift();
@@ -85,9 +77,10 @@ pub fn run_match(
     queue_a.shift();
     game_a.garbage = (0, 0);
     if game_a.topped_out(&map_a) {
-      return MatchResult::WinB;
+      return 0.0;
     }
     if sent_a > 0 {
+      sent_a_total += sent_a as u32;
       let col = (rng_a.next() % BOARD_WIDTH as u64) as u8;
       garbage_b.push(Garbage {
         col,
@@ -102,16 +95,15 @@ pub fn run_match(
         garbage: garbage_b.as_slice(),
         queue: &queue_arr,
       };
-      let mv = match beam_search::<7, 1000>(game_b.clone(), config, &state, weights_b) {
-        None => return MatchResult::WinA,
+      let mv = match beam_search::<7, 60>(game_b.clone(), config, &state, weights_b) {
+        None => return 1.0,
         Some((mv, _)) => mv,
       };
       apply_move(&mut game_b, mv, config, &state)
     };
     garbage_b = remaining_b;
     for g in &mut garbage_b {
-      assert!(g.time > 0, "garbage timer already 0");
-      g.time -= 1;
+      g.time = g.time.saturating_sub(1);
     }
     if double_shift_b {
       queue_b.shift();
@@ -119,9 +111,10 @@ pub fn run_match(
     queue_b.shift();
     game_b.garbage = (0, 0);
     if game_b.topped_out(&map_b) {
-      return MatchResult::WinA;
+      return 1.0;
     }
     if sent_b > 0 {
+      sent_b_total += sent_b as u32;
       let col = (rng_b.next() % BOARD_WIDTH as u64) as u8;
       garbage_a.push(Garbage {
         col,
@@ -129,18 +122,13 @@ pub fn run_match(
         time: 2,
       });
     }
-
-    println!(
-      "move {}, pace: {:.2}ms",
-      i,
-      start.elapsed().as_secs_f64() / (i + 1) as f64 * 1000.0
-    );
   }
 
-  MatchResult::Draw
+  // neither topped out: score by garbage-sent ratio (laplace smoothing avoids 0/0)
+  (sent_a_total as f64 + 1.0) / (sent_a_total as f64 + sent_b_total as f64 + 2.0)
 }
 
-// runs n parallel games, returns win-rate of weights_a (draws = 0.5)
+// runs n parallel games, returns average score for weights_a in [0, 1]
 pub fn run_batch(
   weights_a: &Weights,
   weights_b: &Weights,
@@ -150,16 +138,18 @@ pub fn run_batch(
   depth: u8,
   max_moves: u32,
 ) -> f64 {
-  let score: usize = (0..n)
+  let total: f64 = (0..n)
     .into_par_iter()
     .map(|i| {
-      let seed = base_seed.wrapping_add(i as u64);
-      match run_match(weights_a, weights_b, seed, config, depth, max_moves) {
-        MatchResult::WinA => 2,
-        MatchResult::WinB => 0,
-        MatchResult::Draw => 1,
-      }
+      run_match(
+        weights_a,
+        weights_b,
+        base_seed.wrapping_add(i as u64),
+        config,
+        depth,
+        max_moves,
+      )
     })
     .sum();
-  score as f64 / (n * 2) as f64
+  total / n as f64
 }
