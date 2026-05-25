@@ -11,16 +11,18 @@ pub fn tune<const DEPTH: u8, const WIDTH: usize>(
   steps: usize,
   a: f64,
   c: f64,
+  start_iter: usize,
+  initial: Option<Weights>,
 ) {
   const ALPHA: f64 = 0.602;
   const GAMMA: f64 = 0.101;
   let big_a = steps as f64 * 0.1;
 
-  let mut theta: Vec<f64> = WEIGHTS_HANDTUNED.into();
+  let mut theta: Vec<f64> = initial.unwrap_or(WEIGHTS_HANDTUNED).into();
   let n = theta.len();
 
   let start = std::time::Instant::now();
-  for k in 0..steps {
+  for k in start_iter..steps {
     let a_k = a / (k as f64 + big_a + 1.0).powf(ALPHA);
     let c_k = c / (k as f64 + 1.0).powf(GAMMA);
 

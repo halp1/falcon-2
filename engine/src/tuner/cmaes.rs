@@ -19,8 +19,10 @@ pub fn tune<const DEPTH: u8, const WIDTH: usize>(
   garbage_frequency: usize,
   samples: usize,
   max_generations: usize,
+  start_iter: usize,
+  initial: Option<Weights>,
 ) {
-  let initial: Vec<f64> = WEIGHTS_HANDTUNED.into();
+  let initial_vec: Vec<f64> = initial.unwrap_or(WEIGHTS_HANDTUNED).into();
 
   let gen_seed = Arc::new(AtomicU64::new(0));
   let gen_seed_obj = Arc::clone(&gen_seed);
@@ -41,10 +43,10 @@ pub fn tune<const DEPTH: u8, const WIDTH: usize>(
       / samples as f64
   };
 
-  let mut state = CMAESOptions::new(initial, 1.0)
+  let mut state = CMAESOptions::new(initial_vec, 1.0)
     .mode(Mode::Maximize)
     .enable_printing(1)
-    .max_generations(max_generations)
+    .max_generations(max_generations.saturating_sub(start_iter))
     .build(objective)
     .unwrap();
 

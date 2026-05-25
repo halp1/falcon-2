@@ -2,13 +2,36 @@ pub mod cmaes;
 pub mod sim;
 pub mod spsa;
 
-use engine::game::{GameConfig, queue::Bag};
+use engine::{
+  game::{GameConfig, queue::Bag},
+  search::eval::Weights,
+};
 use triangle::{
   engine::utils::KickTable,
   types::game::{ComboTable, SpinBonuses},
 };
 
+fn load_checkpoint() -> Option<Weights> {
+  let json = std::fs::read_to_string("tuning/weights_checkpoint.json").ok()?;
+  serde_json::from_str(&json).ok()
+}
+
 fn main() {
+  let args: Vec<String> = std::env::args().collect();
+  let continue_iter = args
+    .windows(2)
+    .find(|w| w[0] == "--continue")
+    .and_then(|w| w[1].parse::<usize>().ok());
+
+  let (start_iter, initial) = if let Some(x) = continue_iter {
+    let weights = load_checkpoint()
+      .expect("--continue passed but tuning/weights_checkpoint.json could not be loaded");
+    println!("Resuming from iteration {x} with checkpoint weights");
+    (x, Some(weights))
+  } else {
+    (0, None)
+  };
+
   let config = GameConfig {
     kicks: KickTable::SRSPlus,
     spins: SpinBonuses::AllMiniPlus,
@@ -25,6 +48,6 @@ fn main() {
     bag: Bag::Bag7,
   };
 
-  cmaes::tune::<6, 60>(config, 1000, 4, 8, 1000);
-  // spsa::tune::<6, 60>(config, 1000, 32, 2000, 500.0, 10.0);
+  // cmaes::tune::<6, 60>(config, 1000, 4, 8, 1000, start_iter, initial);
+  spsa::tune::<6, 60>(config, 1000, 32, 1000, 500.0, 10.0, start_iter, initial);
 }

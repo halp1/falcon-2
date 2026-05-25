@@ -8,7 +8,6 @@ use crate::game::{
   data::Move,
   queue::{Bag, Queue},
 };
-use crate::search::movegen::Placement;
 use crate::search::{beam_search, eval::WEIGHTS_HANDTUNED};
 
 #[derive(Deserialize)]

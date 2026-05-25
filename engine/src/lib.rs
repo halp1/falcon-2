@@ -10,7 +10,6 @@ use game::{
 };
 use keyfinder::get_keys;
 use search::beam_search;
-use search::movegen::Placement;
 
 use crate::search::eval::Weights;
 
