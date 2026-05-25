@@ -84,6 +84,62 @@ impl Weights {
   }
 }
 
+impl Into<Vec<f64>> for Weights {
+  fn into(self) -> Vec<f64> {
+    let mut v = Vec::new();
+    v.push(self.outer_height);
+    v.push(self.inner_height);
+    v.push(self.unevenness);
+    v.extend_from_slice(&self.wells);
+    v.push(self.holes.holes);
+    v.push(self.holes.depth);
+    v.push(self.holes.accessible);
+    v.push(self.holes.inaccessible);
+    for i in 0..3 {
+      for j in 0..4 {
+        v.push(self.clear[i][j]);
+      }
+    }
+    v.push(self.t_hole);
+    v.push(self.i_hole);
+    v.extend_from_slice(&self.waste);
+    v.push(self.sent);
+    v.push(self.surge);
+    v.push(self.combo);
+    v
+  }
+}
+
+impl Into<Weights> for Vec<f64> {
+  fn into(self) -> Weights {
+    let mut iter = self.into_iter();
+    let mut v = || iter.next().unwrap_or(0.0);
+    Weights {
+      outer_height: v(),
+      inner_height: v(),
+      unevenness: v(),
+      wells: [v(), v(), v(), v(), v(), v(), v(), v(), v(), v()],
+      holes: HoleData {
+        holes: v(),
+        depth: v(),
+        accessible: v(),
+        inaccessible: v(),
+      },
+      clear: [
+        [v(), v(), v(), v()],
+        [v(), v(), v(), v()],
+        [v(), v(), v(), v()],
+      ],
+      t_hole: v(),
+      i_hole: v(),
+      waste: [v(), v(), v(), v(), v(), v(), v()],
+      sent: v(),
+      surge: v(),
+      combo: v(),
+    }
+  }
+}
+
 pub const WEIGHTS_HANDTUNED: Weights = Weights {
   outer_height: -50.0,
   inner_height: -100.0,

@@ -6,7 +6,7 @@ use triangle::{
   types::game::{ComboTable, Spin, SpinBonuses},
 };
 
-use crate::game::data::{KickTableData, MinoData};
+use crate::game::{data::{KickTableData, MinoData}, queue::Bag};
 
 mod garbage;
 pub mod queue;
@@ -529,6 +529,7 @@ pub struct GameConfig {
   pub pc_b2b: u16,
   pub pc_send: u8,
   pub garbage_special_bonus: bool,
+	pub bag: Bag,
 }
 
 pub struct StartState<'a> {

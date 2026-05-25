@@ -139,6 +139,7 @@ pub mod tests {
       garbage_multiplier: 1.0,
       garbage_cap: 8,
       garbage_special_bonus: true,
+			bag: Bag::Bag7,
     };
 
     let mut queue = Queue::<32>::new(Bag::Bag7, rand::random::<u64>(), vec![Mino::Z]);

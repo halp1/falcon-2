@@ -401,6 +401,14 @@ impl Bot {
 
         b.client.game().unwrap().me.unwrap().set_pause_iges(true);
 
+        let bag = match engine.queue.kind {
+          BagType::Bag7 => Bag::Bag7,
+          _ => {
+            tracing::error!("Unsupported bag type: {:?}", engine.queue.kind);
+            return;
+          }
+        };
+
         {
           let mut falcon = b.engine.lock();
           falcon.start(
@@ -439,15 +447,10 @@ impl Bot {
                 .map(|pc| pc.garbage as u8)
                 .unwrap_or(0),
               spins: engine.initializer.options.spin_bonuses,
+              bag,
             },
             engine.queue.seed as u64,
-            match engine.queue.kind {
-              BagType::Bag7 => Bag::Bag7,
-              _ => {
-                tracing::error!("Unsupported bag type: {:?}", engine.queue.kind);
-                return;
-              }
-            },
+            bag,
           );
         }
 

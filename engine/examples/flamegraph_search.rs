@@ -24,6 +24,7 @@ fn main() {
     garbage_multiplier: 1.0,
     garbage_cap: 8,
     garbage_special_bonus: true,
+    bag: Bag::Bag7,
   };
 
   let mut queue = Queue::new(Bag::Bag7, 0, vec![Mino::Z]);

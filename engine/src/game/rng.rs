@@ -21,6 +21,7 @@ impl RNG {
 
     rng
   }
+
   pub fn next(&mut self) -> u64 {
     self.index += 1;
     self.seed = (MULTIPLIER * self.seed) % MODULUS;

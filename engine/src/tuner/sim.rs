@@ -1,9 +1,8 @@
-use engine::game::queue::{Bag, Queue};
-use engine::game::rng::RNG;
-use engine::game::{BOARD_WIDTH, CollisionMap, Game, GameConfig, Garbage, StartState};
-use engine::search::beam_search;
-use engine::search::eval::Weights;
-use rayon::prelude::*;
+use engine::{
+  game::{BOARD_WIDTH, Game, GameConfig, Garbage, StartState, queue::Queue, rng::RNG},
+  search::{beam_search, eval::Weights},
+};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use triangle::types::game::Spin;
 
 fn apply_move(
@@ -11,7 +10,7 @@ fn apply_move(
   mv: (u8, u8, u8, bool, Spin),
   config: &GameConfig,
   state: &StartState,
-) -> (u16, Vec<Garbage>, bool, CollisionMap) {
+) -> (u16, Vec<Garbage>, bool) {
   let double_shift = mv.3 && game.hold.is_none();
   if mv.3 {
     game.hold(state);
@@ -32,124 +31,210 @@ fn apply_move(
     g.amt = g.amt.saturating_sub(game.garbage.1);
   }
 
-  (sent, garbage, double_shift, map)
+  while garbage.first().map_or(false, |g| g.amt == 0) {
+    garbage.remove(0);
+  }
+
+  (sent, garbage, double_shift)
 }
 
-pub fn run_match(
+struct Player {
+  weights: Weights,
+  queue: Queue<32>,
+  game: Game,
+  garbage: Vec<Garbage>,
+  rng: RNG,
+  sent_total: u32,
+}
+
+/// returns true if b wins, false if a wins, a wins by default on ties
+pub fn run_match<const DEPTH: u8, const WIDTH: usize>(
+  config: &GameConfig,
+  max_moves: usize,
   weights_a: &Weights,
   weights_b: &Weights,
-  seed: u64,
-  config: &GameConfig,
-  _depth: u8,
-  max_moves: u32,
-) -> f64 {
-  let mut queue_a = Queue::<32>::new(Bag::Bag7, seed, vec![]);
-  let mut queue_b = Queue::<32>::new(Bag::Bag7, seed, vec![]);
-  let mut game_a = Game::new(queue_a.shift());
-  let mut game_b = Game::new(queue_b.shift());
-  let mut garbage_a: Vec<Garbage> = Vec::new();
-  let mut garbage_b: Vec<Garbage> = Vec::new();
-  let mut rng_a = RNG::new(seed ^ 0xDEAD_BEEF);
-  let mut rng_b = RNG::new(seed ^ 0xCAFE_BABE);
-  let mut sent_a_total: u32 = 0;
-  let mut sent_b_total: u32 = 0;
+) -> bool {
+  let seed = rand::random::<u64>();
+  let mut players = (0..2)
+    .map(|i| {
+      let mut queue = Queue::new(config.bag, seed, vec![]);
+      Player {
+        weights: if i == 0 {
+          weights_a.clone()
+        } else {
+          weights_b.clone()
+        },
+        game: Game::new(queue.shift()),
+        queue,
+        garbage: Vec::new(),
+        rng: RNG::new(seed),
+        sent_total: 0,
+      }
+    })
+    .collect::<Vec<_>>();
 
   for _ in 0..max_moves {
-    let (sent_a, remaining_a, double_shift_a, map_a) = {
-      let queue_arr = queue_a.as_array();
-      let state = StartState {
-        garbage: garbage_a.as_slice(),
-        queue: &queue_arr,
-      };
-      let mv = match beam_search::<7, 60>(game_a.clone(), config, &state, weights_a) {
-        None => return 0.0,
-        Some((mv, _)) => mv,
-      };
-      apply_move(&mut game_a, mv, config, &state)
-    };
-    garbage_a = remaining_a;
-    for g in &mut garbage_a {
-      g.time = g.time.saturating_sub(1);
-    }
-    if double_shift_a {
-      queue_a.shift();
-    }
-    queue_a.shift();
-    game_a.garbage = (0, 0);
-    if game_a.topped_out(&map_a) {
-      return 0.0;
-    }
-    if sent_a > 0 {
-      sent_a_total += sent_a as u32;
-      let col = (rng_a.next() % BOARD_WIDTH as u64) as u8;
-      garbage_b.push(Garbage {
-        col,
-        amt: sent_a,
-        time: 2,
-      });
+    let results: Vec<(bool, usize, u16)> = players
+      .iter_mut()
+      .enumerate()
+      .map(|(i, player)| -> (bool, usize, u16) {
+        let arr = player.queue.as_array();
+        let state = StartState {
+          garbage: player.garbage.as_slice(),
+          queue: &arr,
+        };
+
+        let gc = player.game.clone();
+
+        let (sent, garbage, double_shift) = apply_move(
+          &mut player.game,
+          match beam_search::<DEPTH, WIDTH>(gc, config, &state, &player.weights) {
+            Some(mv) => mv.0,
+            None => return (false, i, 0),
+          },
+          config,
+          &state,
+        );
+
+        if player.game.topped_out_raw() {
+          return (false, i, 0);
+        }
+
+        player.sent_total += sent as u32;
+        player.garbage = garbage;
+
+        if double_shift {
+          player.queue.shift();
+        }
+        player.queue.shift();
+        player.game.queue_ptr = 0;
+        player.game.garbage = (0, 0);
+
+        (true, i, sent)
+      })
+      .collect();
+
+    for &(_, i, sent) in &results {
+      if sent > 0 {
+        let opponent = &mut players[1 - i];
+        opponent.garbage.push(Garbage {
+          amt: (sent as f32 * config.garbage_multiplier).floor() as u16,
+          col: (opponent.rng.next_float() * BOARD_WIDTH as f64) as u8,
+          time: 2,
+        });
+      }
     }
 
-    let (sent_b, remaining_b, double_shift_b, map_b) = {
-      let queue_arr = queue_b.as_array();
-      let state = StartState {
-        garbage: garbage_b.as_slice(),
-        queue: &queue_arr,
-      };
-      let mv = match beam_search::<7, 60>(game_b.clone(), config, &state, weights_b) {
-        None => return 1.0,
-        Some((mv, _)) => mv,
-      };
-      apply_move(&mut game_b, mv, config, &state)
+    if !results[1].0 {
+      return false;
+    }
+    if !results[0].0 {
+      return true;
+    }
+  }
+
+  return players[0].sent_total < players[1].sent_total;
+}
+
+pub fn batch_match<const DEPTH: u8, const WIDTH: usize>(
+  weights_a: &Weights,
+  weights_b: &Weights,
+  n: usize,
+  config: &GameConfig,
+  max_moves: usize,
+) -> f64 {
+  let total = (0..n)
+    .into_par_iter()
+    .map(|_| run_match::<DEPTH, WIDTH>(config, max_moves, weights_a, weights_b))
+    .map(|b| if b { 0.0 } else { 1.0 })
+    .sum::<f64>();
+  total / n as f64
+}
+
+pub fn run_solo<const DEPTH: u8, const WIDTH: usize>(
+  weights: &Weights,
+  config: &GameConfig,
+  moves: usize,
+  garbage_frequency: usize,
+) -> f64 {
+  let mut player = {
+    let mut queue = Queue::new(config.bag, rand::random::<u64>(), vec![]);
+    Player {
+      weights: weights.clone(),
+      game: Game::new(queue.shift()),
+      queue,
+      garbage: Vec::new(),
+      rng: RNG::new(rand::random::<u64>()),
+      sent_total: 0,
+    }
+  };
+
+  for i in 0..moves {
+    let arr = player.queue.as_array();
+    let state = StartState {
+      garbage: player.garbage.as_slice(),
+      queue: &arr,
     };
-    garbage_b = remaining_b;
-    for g in &mut garbage_b {
-      g.time = g.time.saturating_sub(1);
+
+    let gc = player.game.clone();
+
+    let (sent, garbage, double_shift) = apply_move(
+      &mut player.game,
+      match beam_search::<DEPTH, WIDTH>(gc, config, &state, &player.weights) {
+        Some(mv) => mv.0,
+        None => return i as f64,
+      },
+      config,
+      &state,
+    );
+
+    if player.game.topped_out_raw() {
+      return i as f64;
     }
-    if double_shift_b {
-      queue_b.shift();
+
+    player.sent_total += sent as u32;
+
+    if double_shift {
+      player.queue.shift();
     }
-    queue_b.shift();
-    game_b.garbage = (0, 0);
-    if game_b.topped_out(&map_b) {
-      return 1.0;
-    }
-    if sent_b > 0 {
-      sent_b_total += sent_b as u32;
-      let col = (rng_b.next() % BOARD_WIDTH as u64) as u8;
-      garbage_a.push(Garbage {
-        col,
-        amt: sent_b,
-        time: 2,
+    player.queue.shift();
+    player.game.queue_ptr = 0;
+    player.game.garbage = (0, 0);
+
+    player.garbage = garbage
+      .into_iter()
+      .map(|mut g| {
+        g.time = g.time.saturating_sub(1);
+        g
+      })
+      .collect();
+
+    if i % garbage_frequency == 0 {
+      player.garbage.push(Garbage {
+        amt: (player.rng.next_float() * 8.0 + 1.0).floor() as u16,
+        col: (player.rng.next_float() * BOARD_WIDTH as f64) as u8,
+        time: if player.rng.next_float() < 1.0 / 3.0 {
+          1
+        } else {
+          0
+        }, // average 60 frames/piece and 20 frames of garbage delay so 1/3 chance of time 1, otherwise time 0
       });
     }
   }
 
-  // neither topped out: score by garbage-sent ratio (laplace smoothing avoids 0/0)
-  (sent_a_total as f64 + 1.0) / (sent_a_total as f64 + sent_b_total as f64 + 2.0)
+  moves as f64 + player.sent_total as f64
 }
 
-// runs n parallel games, returns average score for weights_a in [0, 1]
-pub fn run_batch(
-  weights_a: &Weights,
-  weights_b: &Weights,
-  n: usize,
-  base_seed: u64,
+pub fn batch_solo<const DEPTH: u8, const WIDTH: usize>(
+  weights: &Weights,
   config: &GameConfig,
-  depth: u8,
-  max_moves: u32,
+  moves: usize,
+  garbage_frequency: usize,
+  n: usize,
 ) -> f64 {
-  let total: f64 = (0..n)
+  let total = (0..n)
     .into_par_iter()
-    .map(|i| {
-      run_match(
-        weights_a,
-        weights_b,
-        base_seed.wrapping_add(i as u64),
-        config,
-        depth,
-        max_moves,
-      )
-    })
-    .sum();
+    .map(|_| run_solo::<DEPTH, WIDTH>(weights, config, moves, garbage_frequency))
+    .sum::<f64>();
   total / n as f64
 }
