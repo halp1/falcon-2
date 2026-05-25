@@ -1,6 +1,7 @@
 use triangle::{engine::queue::Mino, types::game::Spin};
 
 use crate::game::{StartState, data::MinoData};
+use crate::search::movegen::Placement;
 
 use super::game::{Game, GameConfig, data::Move};
 
@@ -128,7 +129,7 @@ pub fn compress_blocks(blocks: &[(u8, u8); 4]) -> [u64; 7] {
   res
 }
 
-pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)) -> Vec<Move> {
+pub fn get_keys(mut state: Game, config: &GameConfig, target: Placement) -> Vec<Move> {
   let mut passed = [0u64; 1024];
 
   let mut queue = [(0, 0, 0, Spin::None, ([Move::None; 16], 0usize)); 2048];
@@ -139,12 +140,12 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
   let target_blocks = state
     .piece
     .mino
-    .rot(target.2)
-    .map(|block| (target.0 - block.0, target.1 - block.1));
+    .rot(target.rot)
+    .map(|block| (target.x - block.0, target.y - block.1));
 
   let target_compressed = compress_blocks(&target_blocks);
 
-  let tgt_2 = target.2 % 2;
+  let tgt_2 = target.rot % 2;
 
   queue[0] = (
     state.piece.x,
@@ -181,7 +182,7 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
 
       if mv == Move::HardDrop {
         if state.piece.rot % 2 == tgt_2
-          && state.spin == target.3
+          && state.spin == target.spin
           && compress_blocks(
             &state
               .piece
@@ -231,13 +232,13 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: (u8, u8, u8, Spin)
 
   state.print();
   println!("Target:");
-  state.piece.x = target.0;
-  state.piece.y = target.1;
-  state.piece.rot = target.2;
-  state.spin = target.3;
+  state.piece.x = target.x;
+  state.piece.y = target.y;
+  state.piece.rot = target.rot;
+  state.spin = target.spin;
   state.print();
   println!("Initial:");
   game.print();
 
-  panic!("No move found (tgt spin: {})", target.3.as_str());
+  panic!("No move found (tgt spin: {})", target.spin.as_str());
 }

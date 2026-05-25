@@ -9,33 +9,33 @@ use game::{
   queue::{Bag, Queue},
 };
 use keyfinder::get_keys;
-use search::{beam_search, eval::WEIGHTS_HANDTUNED};
+use search::beam_search;
+use search::movegen::Placement;
+
+use crate::search::eval::Weights;
 
 pub struct StepResult {
   pub keys: Vec<Move>,
   pub time: f64,
 }
 
-pub struct Falcon {
+pub struct Falcon<const DEPTH: u8, const WIDTH: usize> {
   queue: Queue<32>,
   game: Game,
   config: Option<GameConfig>,
+  weights: Weights,
 }
 
-impl Default for Falcon {
-  fn default() -> Self {
-    Self::new()
-  }
-}
-
-impl Falcon {
-  pub fn new() -> Self {
+impl<const DEPTH: u8, const WIDTH: usize> Falcon<DEPTH, WIDTH> {
+  pub fn new(weights: Weights) -> Self {
     let mut queue = Queue::new(Bag::Bag7, 0, Vec::new());
     let game = Game::new(queue.shift());
+
     Self {
       queue,
       game,
       config: None,
+      weights,
     }
   }
 
@@ -62,25 +62,26 @@ impl Falcon {
     };
 
     let start_time = std::time::Instant::now();
-    let choice = beam_search::<7, 1000>(self.game.clone(), &config, &start_state, &WEIGHTS_HANDTUNED);
+    let choice =
+      beam_search::<DEPTH, WIDTH>(self.game.clone(), &config, &start_state, &self.weights);
     let elapsed = start_time.elapsed().as_secs_f64();
 
     if let Some(mv) = choice {
       let mut double_shift = false;
-      if mv.0.3 {
+      if mv.0.hold {
         double_shift = self.game.hold.is_none();
         self.game.hold(&start_state);
       }
 
       let map = self.game.collision_map();
 
-      let mut keys = get_keys(self.game.clone(), &config, (mv.0.0, mv.0.1, mv.0.2, mv.0.4));
+      let mut keys = get_keys(self.game.clone(), &config, mv.0.placement);
 
       for key in keys.iter() {
         key.run(&mut self.game, &config, &map, &start_state);
       }
 
-      if mv.0.3 {
+      if mv.0.hold {
         keys.insert(0, Move::Hold);
       }
 
@@ -89,7 +90,15 @@ impl Falcon {
       println!("B2B: {}", self.game.b2b);
       println!("Time: {:.0}μs", elapsed * 1_000_000.0);
 
-      self.game.hard_drop(&config, &map, &start_state, 0);
+      self.game.hard_drop(
+        &config,
+        &map,
+        &StartState {
+          queue: &self.queue.as_array(),
+          garbage: &[],
+        },
+        0,
+      );
 
       if double_shift {
         self.queue.shift();
@@ -139,7 +148,7 @@ pub mod tests {
       garbage_multiplier: 1.0,
       garbage_cap: 8,
       garbage_special_bonus: true,
-			bag: Bag::Bag7,
+      bag: Bag::Bag7,
     };
 
     let mut queue = Queue::<32>::new(Bag::Bag7, rand::random::<u64>(), vec![Mino::Z]);

@@ -4,7 +4,7 @@ use engine::{
     Game, GameConfig, StartState,
     queue::{Bag, Queue},
   },
-  search::{beam_search, eval::WEIGHTS_HANDTUNED, movegen::expand},
+  search::{beam_search, eval::WEIGHTS_HANDTUNED, movegen::{Placement, expand}},
 };
 use triangle::{
   engine::{queue::Mino, utils::KickTable},
@@ -49,7 +49,7 @@ fn bench_beam_search(c: &mut Criterion) {
 fn bench_expand(c: &mut Criterion) {
   let (config, mut game, queue) = setup();
   let mut passed = [0u64; 2048];
-  let mut res = [(0u8, 0u8, 0u8, Spin::None); 512];
+  let mut res = [Placement { x: 0, y: 0, rot: 0, spin: Spin::None }; 512];
 
   let map = game.collision_map();
   let start_state = StartState {

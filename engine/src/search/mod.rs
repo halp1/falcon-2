@@ -5,18 +5,24 @@ use std::{collections::HashSet, time::Instant};
 use crate::game::StartState;
 use crate::game::{BOARD_WIDTH, Game, GameConfig};
 use crate::search::eval::MoveInfo;
-use crate::search::movegen::expand;
+use crate::search::movegen::{Placement, expand};
 
 pub mod eval;
 pub mod movegen;
 use eval::Weights;
 use triangle::types::game::Spin;
 
+#[derive(Copy, Clone, Debug)]
+pub struct Action {
+  pub placement: Placement,
+  pub hold: bool,
+}
+
 #[derive(Clone, Debug)]
 struct SearchState {
   pub game: Game,
   pub depth: u8,
-  pub first_move: Option<(u8, u8, u8, bool, Spin)>,
+  pub first_move: Option<Action>,
 }
 
 pub fn search(
@@ -25,15 +31,20 @@ pub fn search(
   start_state: &StartState,
   max_depth: u8,
   weights: &Weights,
-) -> Option<((u8, u8, u8, bool, Spin), Game)> {
-  let mut best_result: Option<(Game, f64, (u8, u8, u8, bool, Spin))> = None;
+) -> Option<(Action, Game)> {
+  let mut best_result: Option<(Game, f64, Action)> = None;
 
   let mut queue: Vec<SearchState> = Vec::with_capacity(2usize.pow(19));
 
   let mut passed: HashSet<[u64; BOARD_WIDTH]> = HashSet::with_capacity(2usize.pow(20));
 
   let mut expand_passed = [0u64; 2048];
-  let mut expand_res = [(0u8, 0u8, 0u8, Spin::None); 512];
+  let mut expand_res = [Placement {
+    x: 0,
+    y: 0,
+    rot: 0,
+    spin: Spin::None,
+  }; 512];
 
   queue.push(SearchState {
     game: state,
@@ -64,23 +75,33 @@ pub fn search(
 
     if depth >= max_depth - 1 {
       for i in 0..moves.0 {
-        let (x, y, rot, spin) = expand_res[i];
-        game_copy.piece.x = x;
-        game_copy.piece.y = y;
-        game_copy.piece.rot = rot;
-        game_copy.spin = spin;
-        let (sent, clear) = game_copy.hard_drop(config, &map, &start_state, depth);
+        let p = expand_res[i];
+        game_copy.piece.x = p.x;
+        game_copy.piece.y = p.y;
+        game_copy.piece.rot = p.rot;
+        game_copy.spin = p.spin;
+        let (attack, sent, clear) = game_copy.hard_drop(config, &map, &start_state, depth);
         nodes += 1;
         if game_copy.topped_out(&map) {
           game_copy = queue[ptr - 1].game.clone();
           continue;
         }
-        let score = weights.eval(&game_copy, &MoveInfo { clear, sent });
+        let score = weights.eval(
+          &game_copy,
+          &MoveInfo {
+            clear,
+            sent,
+            attack,
+          },
+        );
         if best_result.is_none() || score > best_result.as_ref().unwrap().1 {
           best_result = Some((
             game_copy.clone(),
             score,
-            first_move.unwrap_or((x, y, rot, false, spin)),
+            first_move.unwrap_or(Action {
+              placement: p,
+              hold: false,
+            }),
           ));
         }
 
@@ -88,12 +109,12 @@ pub fn search(
       }
     } else {
       for i in 0..moves.0 {
-        let (x, y, rot, spin) = expand_res[i];
-        game_copy.piece.x = x;
-        game_copy.piece.y = y;
-        game_copy.piece.rot = rot;
-        game_copy.spin = spin;
-        let (sent, clear) = game_copy.hard_drop(config, &map, &start_state, depth);
+        let p = expand_res[i];
+        game_copy.piece.x = p.x;
+        game_copy.piece.y = p.y;
+        game_copy.piece.rot = p.rot;
+        game_copy.spin = p.spin;
+        let (attack, sent, clear) = game_copy.hard_drop(config, &map, &start_state, depth);
         if !passed.insert(game_copy.board.cols.clone()) {
           game_copy = queue[ptr - 1].game.clone();
           continue;
@@ -109,11 +130,10 @@ pub fn search(
         queue.push(SearchState {
           game: game_copy.clone(),
           depth: depth + 1,
-          first_move: if first_move != None {
-            first_move
-          } else {
-            Some((x, y, rot, false, spin))
-          },
+          first_move: first_move.or(Some(Action {
+            placement: p,
+            hold: false,
+          })),
         });
 
         game_copy = queue[ptr - 1].game.clone();
@@ -168,7 +188,7 @@ pub fn beam_search<const DEPTH: u8, const WIDTH: usize>(
   config: &GameConfig,
   start_state: &StartState,
   weights: &Weights,
-) -> Option<((u8, u8, u8, bool, Spin), Game)> {
+) -> Option<(Action, Game)> {
   let init_state = SearchState {
     game: root_game.clone(),
     depth: 0,
@@ -179,6 +199,7 @@ pub fn beam_search<const DEPTH: u8, const WIDTH: usize>(
     &MoveInfo {
       clear: (Spin::None, 0),
       sent: 0,
+      attack: 0,
     },
   );
 
@@ -189,7 +210,12 @@ pub fn beam_search<const DEPTH: u8, const WIDTH: usize>(
   }));
 
   let mut passed = [0u64; 2048];
-  let mut res_buf = [(0u8, 0u8, 0u8, Spin::None); 512];
+  let mut res_buf = [Placement {
+    x: 0,
+    y: 0,
+    rot: 0,
+    spin: Spin::None,
+  }; 512];
 
   for depth in 0..DEPTH {
     let mut next_beam: BinaryHeap<Reverse<Candidate>> = BinaryHeap::with_capacity(WIDTH);
@@ -214,21 +240,24 @@ pub fn beam_search<const DEPTH: u8, const WIDTH: usize>(
         );
 
         for i in 0..moves.0 {
-          let (x, y, rot, spin) = res_buf[i];
+          let p = res_buf[i];
           let mut g2 = game_copy.clone();
-          g2.piece.x = x;
-          g2.piece.y = y;
-          g2.piece.rot = rot;
-          g2.spin = spin;
+          g2.piece.x = p.x;
+          g2.piece.y = p.y;
+          g2.piece.rot = p.rot;
+          g2.spin = p.spin;
 
-          let (sent, clear) = g2.hard_drop(config, &map, &start_state, depth);
+          let (attack, sent, clear) = g2.hard_drop(config, &map, &start_state, depth);
 
           if g2.topped_out_raw() {
             continue;
           }
 
           let next_depth = cand.state.depth + 1;
-          let next_first = cand.state.first_move.or(Some((x, y, rot, n == 1, spin)));
+          let next_first = cand.state.first_move.or(Some(Action {
+            placement: p,
+            hold: n == 1,
+          }));
 
           let next_state = SearchState {
             game: g2.clone(),
@@ -236,7 +265,14 @@ pub fn beam_search<const DEPTH: u8, const WIDTH: usize>(
             first_move: next_first,
           };
 
-          let score = weights.eval(&g2, &MoveInfo { clear, sent });
+          let score = weights.eval(
+            &g2,
+            &MoveInfo {
+              clear,
+              sent,
+              attack,
+            },
+          );
           let candidate = Candidate {
             state: next_state,
             score,

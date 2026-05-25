@@ -28,6 +28,7 @@ use crate::lib::{
 use engine::{
   Falcon,
   game::{GameConfig, Garbage, data::Move, queue::Bag},
+  search::eval::Weights,
 };
 use settings::{ConstraintLevel, SettingsHandler};
 
@@ -113,7 +114,7 @@ pub struct State {
 }
 
 pub struct Bot {
-  engine: Mutex<Falcon>,
+  engine: Mutex<Falcon<7, 500>>,
   pub client: Client,
   pub config: RwLock<Config>,
   pub state: RwLock<State>,
@@ -203,8 +204,11 @@ impl Bot {
     );
     commands::register(&mut cmd);
 
+    let weights = serde_json::from_str::<Weights>(&std::fs::read_to_string(env().weights.clone())?)
+      .map_err(|e| BotError::IoError(e.into()))?;
+
     let bot = Arc::new(Bot {
-      engine: Mutex::new(Falcon::new()),
+      engine: Mutex::new(Falcon::new(weights)),
       client,
       settings: SettingsHandler::new(),
       config: RwLock::new(Config {

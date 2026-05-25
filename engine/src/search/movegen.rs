@@ -2,6 +2,14 @@ use triangle::{engine::queue::Mino, types::game::Spin};
 
 use crate::game::{CollisionMap, Game, GameConfig, StartState, data::Move};
 
+#[derive(Copy, Clone, Debug)]
+pub struct Placement {
+  pub x: u8,
+  pub y: u8,
+  pub rot: u8,
+  pub spin: Spin,
+}
+
 const MOVES: [[Move; 6]; 7] = [
   // None
   [
@@ -71,14 +79,14 @@ const MOVES: [[Move; 6]; 7] = [
 pub fn expand(
   mut state: &mut Game,
   config: &GameConfig,
-	map: &CollisionMap,
-	start_state: &StartState,
+  map: &CollisionMap,
+  start_state: &StartState,
   passed: &mut [u64; 2048],
-  res: &mut [(u8, u8, u8, Spin); 512],
+  res: &mut [Placement; 512],
 ) -> (usize, u64) {
   passed.iter_mut().for_each(|m| *m = 0);
 
-  let mut queue = [(0, 0, 0, Spin::None, Move::None);1024];
+  let mut queue = [(0, 0, 0, Spin::None, Move::None); 1024];
 
   let mut front_ptr = 0;
   let mut back_ptr = 1;
@@ -133,7 +141,12 @@ pub fn expand(
 
       if mv == Move::SoftDrop && passed[1024 + idx] & bit == 0 {
         passed[1024 + idx] |= bit;
-        res[res_ptr] = (state.piece.x, state.piece.y, state.piece.rot, state.spin);
+        res[res_ptr] = Placement {
+          x: state.piece.x,
+          y: state.piece.y,
+          rot: state.piece.rot,
+          spin: state.spin,
+        };
 
         res_ptr += 1;
       }
@@ -158,12 +171,11 @@ pub fn expand(
   (res_ptr, nodes)
 }
 
-
 // pub fn expand_floodfill(
 //   mut state: &mut Game,
 //   config: &GameConfig,
 //   passed: &mut [u64; 2048],
 //   res: &mut [(u8, u8, u8, Spin); 512],
 // ) -> (usize, u64) {
-	
+
 // }

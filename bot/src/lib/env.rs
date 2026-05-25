@@ -10,6 +10,9 @@ pub struct Env {
 
   #[arg(long, default_value_t = false)]
   pub server: bool,
+
+  #[arg(long, env = "WEIGHTS", default_value_t = String::from("weights/weights.json"))]
+  pub weights: String,
 }
 
 static ENV: OnceLock<Env> = OnceLock::new();

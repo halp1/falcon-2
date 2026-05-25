@@ -41,6 +41,7 @@ impl HoleData<f64> {
 pub struct MoveInfo {
   pub clear: (Spin, u8),
   pub sent: u16,
+  pub attack: u16,
 }
 
 impl Weights {

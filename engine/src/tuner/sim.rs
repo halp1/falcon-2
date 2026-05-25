@@ -1,26 +1,25 @@
 use engine::{
   game::{BOARD_WIDTH, Game, GameConfig, Garbage, StartState, queue::Queue, rng::RNG},
-  search::{beam_search, eval::Weights},
+  search::{Action, beam_search, eval::Weights},
 };
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use triangle::types::game::Spin;
 
 fn apply_move(
   game: &mut Game,
-  mv: (u8, u8, u8, bool, Spin),
+  mv: Action,
   config: &GameConfig,
   state: &StartState,
-) -> (u16, Vec<Garbage>, bool) {
-  let double_shift = mv.3 && game.hold.is_none();
-  if mv.3 {
+) -> (u16, u16, Vec<Garbage>, bool) {
+  let double_shift = mv.hold && game.hold.is_none();
+  if mv.hold {
     game.hold(state);
   }
   let map = game.collision_map();
-  game.piece.x = mv.0;
-  game.piece.y = mv.1;
-  game.piece.rot = mv.2;
-  game.spin = mv.4;
-  let (sent, _) = game.hard_drop(config, &map, state, 0);
+  game.piece.x = mv.placement.x;
+  game.piece.y = mv.placement.y;
+  game.piece.rot = mv.placement.rot;
+  game.spin = mv.placement.spin;
+  let (attack, sent, _) = game.hard_drop(config, &map, state, 0);
 
   game.queue_ptr = 0;
 
@@ -35,7 +34,7 @@ fn apply_move(
     garbage.remove(0);
   }
 
-  (sent, garbage, double_shift)
+  (attack, sent, garbage, double_shift)
 }
 
 struct Player {
@@ -53,8 +52,8 @@ pub fn run_match<const DEPTH: u8, const WIDTH: usize>(
   max_moves: usize,
   weights_a: &Weights,
   weights_b: &Weights,
+  seed: u64,
 ) -> bool {
-  let seed = rand::random::<u64>();
   let mut players = (0..2)
     .map(|i| {
       let mut queue = Queue::new(config.bag, seed, vec![]);
@@ -86,7 +85,7 @@ pub fn run_match<const DEPTH: u8, const WIDTH: usize>(
 
         let gc = player.game.clone();
 
-        let (sent, garbage, double_shift) = apply_move(
+        let (attack, sent, garbage, double_shift) = apply_move(
           &mut player.game,
           match beam_search::<DEPTH, WIDTH>(gc, config, &state, &player.weights) {
             Some(mv) => mv.0,
@@ -100,7 +99,7 @@ pub fn run_match<const DEPTH: u8, const WIDTH: usize>(
           return (false, i, 0);
         }
 
-        player.sent_total += sent as u32;
+        player.sent_total += attack as u32;
         player.garbage = garbage;
 
         if double_shift {
@@ -142,10 +141,19 @@ pub fn batch_match<const DEPTH: u8, const WIDTH: usize>(
   n: usize,
   config: &GameConfig,
   max_moves: usize,
+  seed: u64,
 ) -> f64 {
   let total = (0..n)
     .into_par_iter()
-    .map(|_| run_match::<DEPTH, WIDTH>(config, max_moves, weights_a, weights_b))
+    .map(|i| {
+      run_match::<DEPTH, WIDTH>(
+        config,
+        max_moves,
+        weights_a,
+        weights_b,
+        seed.wrapping_add(i as u64),
+      )
+    })
     .map(|b| if b { 0.0 } else { 1.0 })
     .sum::<f64>();
   total / n as f64
@@ -179,7 +187,7 @@ pub fn run_solo<const DEPTH: u8, const WIDTH: usize>(
 
     let gc = player.game.clone();
 
-    let (sent, garbage, double_shift) = apply_move(
+    let (attack, _, garbage, double_shift) = apply_move(
       &mut player.game,
       match beam_search::<DEPTH, WIDTH>(gc, config, &state, &player.weights) {
         Some(mv) => mv.0,
@@ -190,10 +198,10 @@ pub fn run_solo<const DEPTH: u8, const WIDTH: usize>(
     );
 
     if player.game.topped_out_raw() {
-      return i as f64 + player.sent_total as f64 + sent as f64;
+      return i as f64 + player.sent_total as f64 + attack as f64;
     }
 
-    player.sent_total += sent as u32;
+    player.sent_total += attack as u32;
 
     if double_shift {
       player.queue.shift();

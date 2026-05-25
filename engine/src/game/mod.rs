@@ -910,14 +910,14 @@ impl Game {
     self.board.collision_map(&self.piece)
   }
 
-  // Returns (sent garbage, (clear type + lines cleared))
+  // Returns (attack, actual sent garbage, (clear type + lines cleared))
   pub fn hard_drop(
     &mut self,
     config: &GameConfig,
     collision_map: &CollisionMap,
     state: &StartState,
     timer: u8,
-  ) -> (u16, (Spin, u8)) {
+  ) -> (u16, u16, (Spin, u8)) {
     // println!("HARD DROP {} {} {} {}", self.piece.mino.str(), self.piece.x, self.piece.y, self.piece.rot);
     self.soft_drop(collision_map);
 
@@ -1019,6 +1019,8 @@ impl Game {
       }
     }
 
+    let attack = sent;
+
     let gb_len = state.garbage.len();
 
     if cleared > 0 {
@@ -1063,6 +1065,6 @@ impl Game {
 
     self.next_piece(state);
 
-    (sent, (clear_type, cleared))
+    (attack, sent, (clear_type, cleared))
   }
 }

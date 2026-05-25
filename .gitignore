@@ -1,5 +1,6 @@
 /target
 /engine/tuning
+weights/
 node_modules
 bun.lock
 scripts

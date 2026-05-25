@@ -8,6 +8,7 @@ use crate::game::{
   data::Move,
   queue::{Bag, Queue},
 };
+use crate::search::movegen::Placement;
 use crate::search::{beam_search, eval::WEIGHTS_HANDTUNED};
 
 #[derive(Deserialize)]
@@ -123,16 +124,12 @@ pub async fn start_server() {
 
         if let Some(mv) = choice {
           let mut double_shift = false;
-          if mv.0.3 {
+          if mv.0.hold {
             double_shift = game.hold.is_none();
             game.hold(&start_state);
           }
 
-          let mut keys = crate::keyfinder::get_keys(
-            game.clone(),
-            &config.clone().unwrap(),
-            (mv.0.0, mv.0.1, mv.0.2, mv.0.4),
-          );
+          let mut keys = crate::keyfinder::get_keys(game.clone(), &config.clone().unwrap(), mv.0.placement);
 
           let map = game.collision_map();
 
@@ -140,7 +137,7 @@ pub async fn start_server() {
             key.run(&mut game, &config.clone().unwrap(), &map, &start_state);
           }
 
-          if mv.0.3 {
+          if mv.0.hold {
             keys.insert(0, Move::Hold);
           }
 
