@@ -25,5 +25,5 @@ fn main() {
     bag: Bag::Bag7,
   };
 
-  cmaes::tune::<6, 60>(config, 1000, 4, 8, 10000);
+  cmaes::tune::<6, 60>(config, 1000, 4, 8, 1000);
 }

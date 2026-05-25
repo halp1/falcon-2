@@ -156,15 +156,16 @@ pub fn run_solo<const DEPTH: u8, const WIDTH: usize>(
   config: &GameConfig,
   moves: usize,
   garbage_frequency: usize,
+  seed: u64,
 ) -> f64 {
   let mut player = {
-    let mut queue = Queue::new(config.bag, rand::random::<u64>(), vec![]);
+    let mut queue = Queue::new(config.bag, seed, vec![]);
     Player {
       weights: weights.clone(),
       game: Game::new(queue.shift()),
       queue,
       garbage: Vec::new(),
-      rng: RNG::new(rand::random::<u64>()),
+      rng: RNG::new(seed ^ 0x9e3779b97f4a7c15),
       sent_total: 0,
     }
   };
@@ -182,14 +183,14 @@ pub fn run_solo<const DEPTH: u8, const WIDTH: usize>(
       &mut player.game,
       match beam_search::<DEPTH, WIDTH>(gc, config, &state, &player.weights) {
         Some(mv) => mv.0,
-        None => return i as f64,
+        None => return i as f64 + player.sent_total as f64,
       },
       config,
       &state,
     );
 
     if player.game.topped_out_raw() {
-      return i as f64;
+      return i as f64 + player.sent_total as f64 + sent as f64;
     }
 
     player.sent_total += sent as u32;
@@ -231,10 +232,19 @@ pub fn batch_solo<const DEPTH: u8, const WIDTH: usize>(
   moves: usize,
   garbage_frequency: usize,
   n: usize,
+  seed: u64,
 ) -> f64 {
   let total = (0..n)
     .into_par_iter()
-    .map(|_| run_solo::<DEPTH, WIDTH>(weights, config, moves, garbage_frequency))
+    .map(|i| {
+      run_solo::<DEPTH, WIDTH>(
+        weights,
+        config,
+        moves,
+        garbage_frequency,
+        seed.wrapping_add(i as u64),
+      )
+    })
     .sum::<f64>();
   total / n as f64
 }
