@@ -55,7 +55,7 @@ impl<const DEPTH: u8, const WIDTH: usize> Falcon<DEPTH, WIDTH> {
     }
   }
 
-  pub fn step(&mut self, garbage: Vec<Garbage>) -> Option<StepResult> {
+  pub fn step(&mut self, garbage: Vec<Garbage>, opponent: &Game) -> Option<StepResult> {
     let config = self.config.clone()?;
     self.game.garbage = (0, 0);
 
@@ -66,8 +66,13 @@ impl<const DEPTH: u8, const WIDTH: usize> Falcon<DEPTH, WIDTH> {
     };
 
     let start_time = std::time::Instant::now();
-    let choice =
-      beam_search::<DEPTH, WIDTH>(self.game.clone(), &config, &start_state, &self.weights);
+    let choice = beam_search::<DEPTH, WIDTH>(
+      self.game.clone(),
+      &config,
+      &start_state,
+      &self.weights,
+      self.weights.eval_opponent(opponent),
+    );
     let elapsed = start_time.elapsed().as_secs_f64();
 
     if let Some(mv) = choice {

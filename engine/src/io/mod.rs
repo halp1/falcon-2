@@ -2,9 +2,10 @@ use std::process::exit;
 
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use triangle::engine::queue::Mino;
 
 use crate::game::{
-  Game, GameConfig, Garbage, StartState,
+  Board, Game, GameConfig, Garbage, StartState,
   data::Move,
   queue::{Bag, Queue},
 };
@@ -32,8 +33,18 @@ pub struct Start {
 }
 
 #[derive(Deserialize)]
+pub struct OpponentInfo {
+  pub b2b: i16,
+  pub combo: i16,
+  pub board: Board,
+  pub queue: Vec<Mino>,
+  pub held: Option<Mino>,
+}
+
+#[derive(Deserialize)]
 pub struct Step {
   garbage: Vec<Garbage>,
+  opponent: OpponentInfo,
 }
 
 #[derive(Serialize)]
@@ -111,6 +122,12 @@ pub async fn start_server() {
         //   game.queue
         // );
 
+        let mut opponent = Game::new(cfg.opponent.queue[0]);
+        opponent.board = cfg.opponent.board;
+        opponent.hold = cfg.opponent.held;
+        opponent.b2b = cfg.opponent.b2b;
+        opponent.combo = cfg.opponent.combo;
+
         let start = std::time::Instant::now();
 
         let choice = beam_search::<7, 1000>(
@@ -118,6 +135,7 @@ pub async fn start_server() {
           &(config.clone()).unwrap(),
           &start_state,
           &WEIGHTS_HANDTUNED,
+          WEIGHTS_HANDTUNED.eval_opponent(&opponent),
         );
         let elapsed = start.elapsed().as_secs_f64();
 
@@ -128,7 +146,8 @@ pub async fn start_server() {
             game.hold(&start_state);
           }
 
-          let mut keys = crate::keyfinder::get_keys(game.clone(), &config.clone().unwrap(), mv.0.placement);
+          let mut keys =
+            crate::keyfinder::get_keys(game.clone(), &config.clone().unwrap(), mv.0.placement);
 
           let map = game.collision_map();
 

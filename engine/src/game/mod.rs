@@ -1,3 +1,4 @@
+use serde::de::Error;
 pub mod data;
 use garbage::damage_calc;
 use serde::{Deserialize, Serialize};
@@ -6,7 +7,10 @@ use triangle::{
   types::game::{ComboTable, Spin, SpinBonuses},
 };
 
-use crate::game::{data::{KickTableData, MinoData}, queue::Bag};
+use crate::game::{
+  data::{KickTableData, MinoData},
+  queue::Bag,
+};
 
 mod garbage;
 pub mod queue;
@@ -175,6 +179,47 @@ pub struct HoleData<T> {
 pub struct Board {
   pub cols: [u64; BOARD_WIDTH],
   pub garbage: u8,
+}
+
+impl<'de> Deserialize<'de> for Board {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: serde::Deserializer<'de>,
+  {
+    #[derive(Deserialize)]
+    struct RawBoard {
+      garbage: u8,
+      board: Vec<[bool; BOARD_WIDTH]>,
+    }
+
+    // Deserialize into the helper struct
+    let raw = RawBoard::deserialize(deserializer)?;
+
+    // Enforce safety limits for the u64 bitmask size
+    if raw.board.len() != BOARD_HEIGHT {
+      return Err(D::Error::custom(format!(
+        "Board height does not match expected height of {}",
+        BOARD_HEIGHT
+      )));
+    }
+
+    // Initialize empty bitmasks for each column
+    let mut cols = [0u64; BOARD_WIDTH];
+
+    // Transpose row-major booleans into column-major u64 bitmasks
+    for (row_idx, row) in raw.board.iter().enumerate() {
+      for (col_idx, &cell) in row.iter().enumerate() {
+        if cell {
+          cols[col_idx] |= 1 << row_idx;
+        }
+      }
+    }
+
+    Ok(Board {
+      cols,
+      garbage: raw.garbage,
+    })
+  }
 }
 
 impl Board {
@@ -359,6 +404,27 @@ impl Board {
       None
     }
   }
+
+  #[inline(always)]
+  pub fn well_depth(&self, heights: &[u32; BOARD_WIDTH], well_idx: usize) -> u32 {
+    heights[well_idx]
+      - heights[0..well_idx]
+        .iter()
+        .max()
+        .unwrap()
+        .max(heights[well_idx + 1..].iter().max().unwrap())
+  }
+
+  #[inline(always)]
+  pub fn count_holes(&self, heights: &[u32; BOARD_WIDTH]) -> u32 {
+    self
+      .cols
+      .iter()
+      .zip(heights.iter())
+      .map(|(&col, &height)| (!col & ((1 << height) - 1)).count_ones())
+      .sum()
+  }
+
   #[inline(always)]
   pub fn holes(&self, heights: &[u32; BOARD_WIDTH]) -> HoleData<u32> {
     let mut total_holes = 0;
@@ -409,14 +475,6 @@ impl Board {
     }
   }
 
-  pub fn count_holes(&self) -> i32 {
-    self
-      .cols
-      .iter()
-      .map(|&col| (!col & ((1 << (64 - col.leading_zeros())) - 1)).count_ones())
-      .sum::<u32>() as i32
-  }
-
   #[inline(always)]
   pub fn unevenness(&self, heights: &[u32; BOARD_WIDTH], well: Option<usize>) -> i32 {
     let mut unevenness = 0;
@@ -431,72 +489,6 @@ impl Board {
     }
 
     unevenness
-  }
-
-  pub fn covered_holes(&self) -> i32 {
-    self
-      .cols
-      .iter()
-      .enumerate()
-      .map(|(x, &col)| {
-        let hole_map = !col & ((1 << (64 - col.leading_zeros())) - 1);
-
-        (hole_map
-          & (if x == 0 { !0u64 } else { self.cols[x - 1] })
-          & (if x == BOARD_WIDTH - 1 {
-            !0u64
-          } else {
-            self.cols[x + 1]
-          }))
-        .count_ones()
-      })
-      .sum::<u32>() as i32
-  }
-
-  pub fn overstacked_holes(&self) -> i32 {
-    self
-      .cols
-      .iter()
-      .map(|&col| {
-        let mask = !col & (col >> 1);
-
-        if mask == 0 {
-          return 0;
-        }
-
-        ((63 - col.leading_zeros()) - mask.trailing_zeros() - 1).max(0)
-      })
-      .sum::<u32>() as i32
-  }
-
-  pub fn wells(&self) -> i32 {
-    let heights = self
-      .cols
-      .iter()
-      .map(|&col| 64 - col.leading_zeros())
-      .collect::<Vec<u32>>();
-
-    (heights
-      .iter()
-      .enumerate()
-      .map(|(index, &height)| {
-        if ((if index == 0 { 63 } else { heights[index - 1] })
-          .min(if index == BOARD_WIDTH - 1 {
-            63
-          } else {
-            heights[index + 1]
-          })
-          .saturating_sub(height))
-          >= 3
-        {
-          1
-        } else {
-          0
-        }
-      })
-      .sum::<u32>() as i32
-      - 1)
-      .max(0)
   }
 }
 
@@ -529,7 +521,7 @@ pub struct GameConfig {
   pub pc_b2b: u16,
   pub pc_send: u8,
   pub garbage_special_bonus: bool,
-	pub bag: Bag,
+  pub bag: Bag,
 }
 
 pub struct StartState<'a> {

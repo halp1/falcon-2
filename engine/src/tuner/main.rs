@@ -49,5 +49,5 @@ fn main() {
   };
 
   // cmaes::tune::<6, 60>(config, 1000, 4, 8, 1000, start_iter, initial);
-  spsa::tune::<6, 60>(config, 1000, 32, 1000, 500.0, 10.0, start_iter, initial);
+  spsa::tune::<6, 60>(config, 1000, 32, 500, 500.0, 10.0, start_iter, initial);
 }

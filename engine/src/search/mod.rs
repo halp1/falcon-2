@@ -31,6 +31,7 @@ pub fn search(
   start_state: &StartState,
   max_depth: u8,
   weights: &Weights,
+  opponent_danger: f64,
 ) -> Option<(Action, Game)> {
   let mut best_result: Option<(Game, f64, Action)> = None;
 
@@ -92,7 +93,9 @@ pub fn search(
             clear,
             sent,
             attack,
+            time: depth,
           },
+          opponent_danger,
         );
         if best_result.is_none() || score > best_result.as_ref().unwrap().1 {
           best_result = Some((
@@ -188,6 +191,7 @@ pub fn beam_search<const DEPTH: u8, const WIDTH: usize>(
   config: &GameConfig,
   start_state: &StartState,
   weights: &Weights,
+  opponent_danger: f64,
 ) -> Option<(Action, Game)> {
   let init_state = SearchState {
     game: root_game.clone(),
@@ -200,7 +204,9 @@ pub fn beam_search<const DEPTH: u8, const WIDTH: usize>(
       clear: (Spin::None, 0),
       sent: 0,
       attack: 0,
+      time: 0,
     },
+    opponent_danger,
   );
 
   let mut beam: BinaryHeap<Reverse<Candidate>> = BinaryHeap::with_capacity(WIDTH);
@@ -271,7 +277,9 @@ pub fn beam_search<const DEPTH: u8, const WIDTH: usize>(
               clear,
               sent,
               attack,
+              time: depth,
             },
+            opponent_danger,
           );
           let candidate = Candidate {
             state: next_state,

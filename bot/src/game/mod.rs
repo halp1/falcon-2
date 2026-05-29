@@ -8,6 +8,7 @@ use thiserror::Error;
 use triangle::{
   Client, ClientOptions, Engine,
   classes::ribbon,
+  engine::queue::Mino,
   types::{
     events::recv,
     game::{Key, tick},
@@ -27,7 +28,8 @@ use crate::lib::{
 };
 use engine::{
   Falcon,
-  game::{GameConfig, Garbage, data::Move, queue::Bag},
+  game::{Board, Game, GameConfig, Garbage, data::Move, queue::Bag},
+  io::OpponentInfo,
   search::eval::Weights,
 };
 use settings::{ConstraintLevel, SettingsHandler};
@@ -803,7 +805,49 @@ impl Bot {
       })
       .collect();
 
-    let mv = self.engine.lock().step(garbage_queue);
+    let opponent = self
+      .client
+      .game()
+      .map(|g| {
+        g.state
+          .lock()
+          .players
+          .iter()
+          .find(|p| p.userid != self.client.user.id.as_str())
+          .map(|p| p.state.lock().engine.clone())
+      })
+      .flatten();
+
+    let mv = self.engine.lock().step(
+      garbage_queue,
+      &match opponent {
+        Some(engine) => {
+          let mut board = Board::new();
+          for (i, row) in engine.board.state.iter().enumerate() {
+            if row
+              .iter()
+              .any(|mino| mino.as_ref().map_or(false, |t| t.mino == Mino::Garbage))
+            {
+              board.garbage = i as u8 + 1;
+            }
+            for (j, tile) in row.iter().enumerate() {
+              if tile.is_some() {
+                board.cols[j] |= 1 << i;
+              }
+            }
+          }
+
+          let mut game = Game::new(engine.falling.symbol);
+          game.board = board;
+
+          game.b2b = engine.stats.b2b as i16;
+          game.combo = engine.stats.combo as i16;
+
+          game
+        }
+        None => Game::new(Mino::I),
+      },
+    );
 
     tracing::info!(
       "keys: {:?}",

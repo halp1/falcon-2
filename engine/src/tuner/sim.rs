@@ -73,6 +73,8 @@ pub fn run_match<const DEPTH: u8, const WIDTH: usize>(
     .collect::<Vec<_>>();
 
   for _ in 0..max_moves {
+    let opponent_games: Vec<Game> = players.iter().map(|p| p.game.clone()).collect();
+
     let results: Vec<(bool, usize, u16)> = players
       .iter_mut()
       .enumerate()
@@ -87,7 +89,13 @@ pub fn run_match<const DEPTH: u8, const WIDTH: usize>(
 
         let (attack, sent, garbage, double_shift) = apply_move(
           &mut player.game,
-          match beam_search::<DEPTH, WIDTH>(gc, config, &state, &player.weights) {
+          match beam_search::<DEPTH, WIDTH>(
+            gc,
+            config,
+            &state,
+            &player.weights,
+            player.weights.eval_opponent(&opponent_games[(i + 1) % 2]),
+          ) {
             Some(mv) => mv.0,
             None => return (false, i, 0),
           },
@@ -189,7 +197,7 @@ pub fn run_solo<const DEPTH: u8, const WIDTH: usize>(
 
     let (attack, _, garbage, double_shift) = apply_move(
       &mut player.game,
-      match beam_search::<DEPTH, WIDTH>(gc, config, &state, &player.weights) {
+      match beam_search::<DEPTH, WIDTH>(gc, config, &state, &player.weights, 0.0) {
         Some(mv) => mv.0,
         None => return i as f64 + player.sent_total as f64,
       },

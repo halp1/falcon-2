@@ -39,7 +39,7 @@ fn main() {
 
   for i in 0..105 {
     let start = std::time::Instant::now();
-    beam_search::<7, 1000>(game.clone(), &config, &start_state, &WEIGHTS_HANDTUNED);
+    beam_search::<7, 1000>(game.clone(), &config, &start_state, &WEIGHTS_HANDTUNED, 0.0);
     if i > 5 {
       total += start.elapsed().as_millis();
     }
