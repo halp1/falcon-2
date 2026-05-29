@@ -16,8 +16,11 @@ pub fn tune<const DEPTH: u8, const WIDTH: usize>(
 ) {
   const ALPHA: f64 = 0.602;
   const GAMMA: f64 = 0.101;
+  const EVAL_EVERY: usize = 10;
+  const EVAL_GAMES: usize = 20;
   let big_a = steps as f64 * 0.1;
 
+  let reference: Weights = WEIGHTS_HANDTUNED;
   let mut theta: Vec<f64> = initial.unwrap_or(WEIGHTS_HANDTUNED).into();
   let n = theta.len();
 
@@ -53,11 +56,23 @@ pub fn tune<const DEPTH: u8, const WIDTH: usize>(
 
     // if k % 10 == 0 || k == steps - 1 {
     let elapsed = start.elapsed().as_secs_f64();
-    println!("step={k:4} win={win_rate:.3} a_k={a_k:.4} c_k={c_k:.4} t={elapsed:.1}s");
     let w: Weights = theta.clone().into();
     if let Ok(json) = serde_json::to_string_pretty(&w) {
       let _ = std::fs::write("tuning/weights_checkpoint.json", json);
     }
+    print!("step={k:4} win={win_rate:.3} a_k={a_k:.4} c_k={c_k:.4} t={elapsed:.1}s");
+    if k % EVAL_EVERY == 0 || k == steps - 1 {
+      let vs_ref = batch_match::<DEPTH, WIDTH>(
+        &w,
+        &reference,
+        EVAL_GAMES,
+        &config,
+        max_moves,
+        rand::random::<u64>(),
+      );
+      print!("  vs_ref={vs_ref:.3}");
+    }
+    println!();
     // }
   }
 

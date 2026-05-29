@@ -1,3 +1,7 @@
+#![feature(adt_const_params)]
+#![feature(generic_const_exprs)]
+#![allow(incomplete_features)]
+
 use bot::lib::env::{self, env};
 
 #[tokio::main]
@@ -6,12 +10,12 @@ async fn main() {
   dotenvy::dotenv().ok();
   env::parse_env();
 
-	// ensure weights file exists
-	let weights_path = env().weights.clone();
-	if !std::path::Path::new(&weights_path).exists() {
-		eprintln!("Weights file not found at '{}'", weights_path);
-		std::process::exit(1);
-	}
+  // ensure weights file exists
+  let weights_path = env().weights.clone();
+  if !std::path::Path::new(&weights_path).exists() {
+    eprintln!("Weights file not found at '{}'", weights_path);
+    std::process::exit(1);
+  }
 
   if env().server {
     engine::io::start_server().await;
