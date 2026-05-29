@@ -4,7 +4,7 @@ use triangle::types::game::Spin;
 use crate::game::{BOARD_WIDTH, Game, HoleData};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct DangerWeights {
+pub struct DangerWeights {
   pub well_depth: f64,
   pub outer_height: f64,
   pub inner_height: f64,

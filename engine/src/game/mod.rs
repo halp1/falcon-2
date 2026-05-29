@@ -411,8 +411,8 @@ impl Board {
       - heights[0..well_idx]
         .iter()
         .max()
-        .unwrap()
-        .max(heights[well_idx + 1..].iter().max().unwrap())
+        .unwrap_or(&0)
+        .max(heights[well_idx + 1..].iter().max().unwrap_or(&0))
   }
 
   #[inline(always)]
