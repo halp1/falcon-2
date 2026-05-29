@@ -20,7 +20,7 @@ pub fn tune<const DEPTH: u8, const WIDTH: usize>(
   const EVAL_GAMES: usize = 20;
   let big_a = steps as f64 * 0.1;
 
-  let reference: Weights = WEIGHTS_HANDTUNED;
+  let mut reference: Weights = WEIGHTS_HANDTUNED;
   let mut theta: Vec<f64> = initial.unwrap_or(WEIGHTS_HANDTUNED).into();
   let n = theta.len();
 
@@ -54,7 +54,6 @@ pub fn tune<const DEPTH: u8, const WIDTH: usize>(
       theta[i] += a_k * (win_rate - 0.5) / (c_k * delta[i]);
     }
 
-    // if k % 10 == 0 || k == steps - 1 {
     let elapsed = start.elapsed().as_secs_f64();
     let w: Weights = theta.clone().into();
     if let Ok(json) = serde_json::to_string_pretty(&w) {
@@ -71,9 +70,9 @@ pub fn tune<const DEPTH: u8, const WIDTH: usize>(
         rand::random::<u64>(),
       );
       print!("  vs_ref={vs_ref:.3}");
+      reference = w.clone();
     }
     println!();
-    // }
   }
 
   let final_weights: Weights = theta.into();
