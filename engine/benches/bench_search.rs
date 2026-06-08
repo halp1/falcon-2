@@ -4,7 +4,11 @@ use engine::{
     Game, GameConfig, StartState,
     queue::{Bag, Queue},
   },
-  search::{beam_search, eval::WEIGHTS_HANDTUNED, movegen::{Placement, expand}},
+  search::{
+    beam_search,
+    eval::WEIGHTS_HANDTUNED,
+    movegen::{Placement, expand},
+  },
 };
 use triangle::{
   engine::{queue::Mino, utils::KickTable},
@@ -49,7 +53,12 @@ fn bench_beam_search(c: &mut Criterion) {
 fn bench_expand(c: &mut Criterion) {
   let (config, mut game, queue) = setup();
   let mut passed = [0u64; 2048];
-  let mut res = [Placement { x: 0, y: 0, rot: 0, spin: Spin::None }; 512];
+  let mut res = [Placement {
+    x: 0,
+    y: 0,
+    rot: 0,
+    spin: Spin::None,
+  }; 512];
 
   let map = game.collision_map();
   let start_state = StartState {
@@ -71,5 +80,46 @@ fn bench_expand(c: &mut Criterion) {
   });
 }
 
-criterion_group!(benches, bench_beam_search, bench_expand);
+fn bench_collision(c: &mut Criterion) {
+  let (_config, mut game, _queue) = setup();
+  for (x, y) in [
+    (0, 0),
+    (1, 0),
+    (3, 0),
+    (4, 0),
+    (5, 0),
+    (6, 0),
+    (9, 0),
+    (0, 1),
+    (4, 1),
+    (5, 1),
+    (8, 1),
+    (9, 1),
+    (0, 2),
+    (3, 2),
+    (4, 2),
+    (8, 2),
+  ] {
+    game.board.set(x, y);
+  }
+
+  game.print();
+
+  for mino in [
+    Mino::I,
+    Mino::J,
+    Mino::S,
+    Mino::T,
+    Mino::O,
+    Mino::L,
+    Mino::Z,
+  ] {
+    game.set_falling(mino);
+    c.bench_function(&format!("collision-map {}", mino.as_str()), |b| {
+      b.iter(|| game.board.collision_map(&game.piece));
+    });
+  }
+}
+
+criterion_group!(benches, bench_beam_search, bench_expand, bench_collision);
 criterion_main!(benches);

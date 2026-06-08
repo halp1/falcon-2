@@ -224,6 +224,48 @@ pub fn register(cmds: &mut Commands<Restriction, Category, Arc<Bot>>) {
   );
 
   cmds.define(
+    &["burst", "b"],
+    DefineParams {
+      description: "Toggle the bot's burst mode".into(),
+      parameters: vec![Parameter {
+        name: "value".into(),
+        r#type: "on | off".into(),
+        description: "Whether to turn burst mode on or off".into(),
+        optional: false,
+      }],
+      category: Category::Controls,
+    },
+    |input: Input| {
+      let reply = input.reply;
+      let args = input.args;
+      let bot = input.data;
+      async move {
+        let Some(arg) = args.first().cloned() else {
+          let current = bot.config.read().burst;
+          reply(format!("Burst: {}.", if current { "on" } else { "off" }));
+          return;
+        };
+
+        let value = match arg.as_str() {
+          "on" => true,
+          "off" => false,
+          _ => {
+            reply("Invalid burst value (must be 'on' or 'off')".into());
+            return;
+          }
+        };
+
+        bot.config.write().burst = value;
+        reply(format!(
+          "Burst is now {}.",
+          if value { "on" } else { "off" }
+        ));
+      }
+    },
+    true,
+  );
+
+  cmds.define(
     &["finesse", "f"],
     DefineParams {
       description: "Set the bot's finesse mode".into(),

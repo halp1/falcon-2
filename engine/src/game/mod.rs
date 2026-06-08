@@ -108,38 +108,30 @@ impl CollisionMap {
   pub fn new(board: &[u64; BOARD_WIDTH], piece: &Falling) -> CollisionMap {
     let mut states = [[0u64; BOARD_WIDTH + 2]; 4];
 
-    // 1. Algorithmic Padding: Map out-of-bounds logic directly to memory offsets.
-    // Placing the active board at index 8 leaves a safe buffer of !0u64 on both sides.
     let mut padded = [!0u64; 32];
     padded[8..8 + BOARD_WIDTH].copy_from_slice(board);
 
     for rot in 0..4 {
       let blocks = piece.mino.rot(rot as u8);
 
-      // 2. High-Level Inversion: Extract all 4 block coordinates at once
       let (dx0, dy0) = (blocks[0].0 as usize, blocks[0].1 as usize);
       let (dx1, dy1) = (blocks[1].0 as usize, blocks[1].1 as usize);
       let (dx2, dy2) = (blocks[2].0 as usize, blocks[2].1 as usize);
       let (dx3, dy3) = (blocks[3].0 as usize, blocks[3].1 as usize);
 
-      // Pre-calculate shift masks to avoid repeating math inside the unrolled sections
       let mask0 = (1u64 << dy0) - 1;
       let mask1 = (1u64 << dy1) - 1;
       let mask2 = (1u64 << dy2) - 1;
       let mask3 = (1u64 << dy3) - 1;
 
-      // 3. Complete Loop Flattening: Compute columns explicitly without internal loops.
-      // This mirrors your C++ inspiration by executing a flat, branchless pipeline.
       macro_rules! compute_column {
         ($x:expr) => {
           unsafe {
-            // Parallel fetch from the padded board layout
             let c0 = *padded.get_unchecked(8 + $x - dx0);
             let c1 = *padded.get_unchecked(8 + $x - dx1);
             let c2 = *padded.get_unchecked(8 + $x - dx2);
             let c3 = *padded.get_unchecked(8 + $x - dx3);
 
-            // Bitwise identity substitution for !(!col << dy) -> (col << dy) | mask
             states[rot][$x] = ((c0 << dy0) | mask0)
               | ((c1 << dy1) | mask1)
               | ((c2 << dy2) | mask2)
@@ -245,35 +237,93 @@ impl Board {
     (self.cols[x] & (1 << y)) != 0
   }
 
-  pub fn clear(&mut self, from: u8, to: u8) -> (u8, bool) {
-    let mut cleared = 0;
-    let mut garbage_cleared = false;
+  // pub fn clear(&mut self, from: u8, to: u8) -> (u8, bool) {
+  //   let mut cleared = 0;
+  //   let mut garbage_cleared = false;
 
-    for y in (from..to + 1).rev() {
-      for x in FULL_WIDTH {
-        if self.cols[x] & (1 << y) == 0 {
-          break;
-        }
-        if x == BOARD_WIDTH - 1 {
-          cleared += 1;
+  //   for y in (from..to + 1).rev() {
+  //     for x in FULL_WIDTH {
+  //       if self.cols[x] & (1 << y) == 0 {
+  //         break;
+  //       }
+  //       if x == BOARD_WIDTH - 1 {
+  //         cleared += 1;
 
-          if y < self.garbage {
-            garbage_cleared = true;
-            self.garbage -= 1;
-          }
+  //         if y < self.garbage {
+  //           garbage_cleared = true;
+  //           self.garbage -= 1;
+  //         }
 
-          for clear_x in FULL_WIDTH {
-            let low_mask = (1u64 << y) - 1;
-            let low = self.cols[clear_x] & low_mask;
+  //         for clear_x in FULL_WIDTH {
+  //           let low_mask = (1u64 << y) - 1;
+  //           let low = self.cols[clear_x] & low_mask;
 
-            let high = self.cols[clear_x] >> (y + 1);
-            self.cols[clear_x] = (high << y) | low;
-          }
-        }
-      }
+  //           let high = self.cols[clear_x] >> (y + 1);
+  //           self.cols[clear_x] = (high << y) | low;
+  //         }
+  //       }
+  //     }
+  //   }
+
+  //   (cleared, garbage_cleared)
+  // }
+
+  #[inline(always)]
+  fn clear_setup(&mut self) -> (u64, bool) {
+    let clear_mask = self.cols.iter().fold(!0u64, |acc, col| acc & col);
+
+    if clear_mask == 0 {
+      return (0, false);
     }
 
-    (cleared, garbage_cleared)
+    let garbage_cleared = (clear_mask & ((1u64 << self.garbage) - 1)).count_ones() as u8;
+    self.garbage -= garbage_cleared;
+
+    (clear_mask, garbage_cleared > 0)
+  }
+
+  #[inline(always)]
+  #[cfg(target_feature = "bmi2")]
+  pub fn clear(&mut self) -> (u8, bool) {
+		use std::arch::x86_64::*;
+
+    let (clear_mask, garbage_cleared) = self.clear_setup();
+
+    if clear_mask == 0 {
+      return (0, false);
+    }
+
+    for x in FULL_WIDTH {
+			unsafe {
+        self.cols[x] = _pext_u64(self.cols[x], !clear_mask);
+      }
+    }
+		
+    return (clear_mask.count_ones() as u8, garbage_cleared);
+  }
+
+  #[inline(always)]
+  #[cfg(not(target_feature = "bmi2"))]
+  pub fn clear(&mut self) -> (u8, bool) {
+    let (clear_mask, garbage_cleared) = self.clear_setup();
+
+    if clear_mask == 0 {
+      return (0, false);
+    }
+
+    while clear_mask != 0 {
+      let y = 63 - clear_mask.leading_zeros();
+      for x in FULL_WIDTH {
+        let low_mask = (1u64 << y) - 1;
+        let low = self.cols[x] & low_mask;
+        let high = self.cols[x] >> (y + 1);
+        self.cols[x] = (high << y) | low;
+      }
+
+      clear_mask ^= 1u64 << y;
+    }
+
+    (clear_mask.count_ones() as u8, garbage_cleared > 0)
   }
 
   // #[inline(always)]
@@ -354,6 +404,7 @@ impl Board {
     print_board(Vec::from(self.cols), self.garbage, (Mino::I, Vec::new()));
   }
 
+  #[inline(always)]
   pub fn collision_map(&self, piece: &Falling) -> CollisionMap {
     CollisionMap::new(&self.cols, piece)
   }
@@ -876,9 +927,14 @@ impl Game {
     let next = start_state.queue[self.queue_ptr];
     self.queue_ptr += 1;
 
-    self.piece.mino = next;
+    self.set_falling(next);
+  }
 
-    let tetromino = next.data();
+  #[inline(always)]
+  pub fn set_falling(&mut self, mino: Mino) {
+    self.piece.mino = mino;
+
+    let tetromino = mino.data();
 
     self.piece.x = ((BOARD_WIDTH + tetromino.w as usize) / 2) as u8 - 1;
     self.piece.y = (BOARD_HEIGHT - BOARD_BUFFER) as u8 + 2;
@@ -957,7 +1013,7 @@ impl Game {
       }
     }
 
-    let (cleared, garbage_cleared) = self.board.clear(self.piece.y - max_y, self.piece.y - min_y);
+    let (cleared, garbage_cleared) = self.board.clear();
 
     let pc = self.board.is_pc();
 

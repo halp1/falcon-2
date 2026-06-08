@@ -29,7 +29,6 @@ use crate::lib::{
 use engine::{
   Falcon,
   game::{Board, Game, GameConfig, Garbage, data::Move, queue::Bag},
-  io::OpponentInfo,
   search::eval::Weights,
 };
 use settings::{ConstraintLevel, SettingsHandler};
@@ -92,6 +91,7 @@ pub enum Finesse {
 #[derive(Debug, Clone)]
 pub struct Config {
   pps: f64,
+  burst: bool,
   finesse: Finesse,
 }
 
@@ -216,6 +216,7 @@ impl Bot {
       config: RwLock::new(Config {
         finesse: Finesse::Smooth,
         pps: 1.0,
+        burst: true,
       }),
       state: RwLock::new(State {
         enabled: EnabledState {
@@ -349,7 +350,6 @@ impl Bot {
           move |message| {
             let bb = b2.clone();
             let msg = message.clone();
-            tracing::info!("sending message: {}", msg);
             tokio::spawn(async move {
               if let Some(room) = bb.client.room() {
                 room.chat(&msg).await.ok();
@@ -465,7 +465,7 @@ impl Bot {
             last_piece_frame: 0,
             target_frame: 0,
           });
-          let target_frame = b.next_piece_frame(&engine, None);
+          let target_frame = b.next_piece_frame(&engine, None, None);
           b.state.write().game = Some(GameState {
             last_piece_frame: engine.frame,
             target_frame,
@@ -540,9 +540,103 @@ impl Bot {
     }
   }
 
-  fn next_piece_frame(&self, engine: &Engine, next_hard_drop_frame: Option<f64>) -> u64 {
-    const MAX_DELTA: f64 = 0.2;
+  fn board_top(engine: &Engine) -> f64 {
+    let idx = engine
+      .board
+      .state
+      .iter()
+      .position(|row| row.iter().all(|cell| cell.is_none()));
+    let top = idx
+      .map(|i| i as i64 - 1)
+      .unwrap_or(engine.board.state.len() as i64 - 1);
+    top.max(0) as f64
+  }
+
+  fn bursting(engine: &Engine, opponent: Option<&Engine>) -> Option<bool> {
+    const BUFFER: f64 = 8.0;
+    let multiplier = engine.dynamic.1.get();
+    let board_top = Self::board_top(engine);
+    let board_height = engine.board.height as f64;
+
+    if board_top + engine.garbage_queue.size() as f64 * multiplier >= board_height - BUFFER {
+      return Some(true);
+    }
+
+    if let Some(opp) = opponent {
+      let opp_multiplier = opp.dynamic.1.get();
+      let opp_top = Self::board_top(opp);
+      let opp_height = opp.board.height as f64;
+
+      if opp_top + opp.garbage_queue.size() as f64 * opp_multiplier
+        >= opp_height - (BUFFER * 2.0 / 3.0)
+      {
+        return Some(false);
+      }
+    }
+
+    None
+  }
+
+  fn max_burst_speed(pps: f64) -> f64 {
+    (2.0 - pps.ln() / 20f64.ln()).max(1.0)
+  }
+
+  fn burst_factor(&self, engine: &Engine, opponent: Option<&Engine>) -> f64 {
+    const BUFFER: f64 = 8.0;
+    const FACTOR_DEFENSIVE: f64 = 0.3;
+    const FACTOR_OFFENSIVE: f64 = 0.1;
+
+    let is_offensive = Self::bursting(engine, opponent) == Some(false);
+
+    let size = if is_offensive {
+      if let Some(opp) = opponent {
+        let opp_multiplier = opp.dynamic.1.get();
+        let opp_top = Self::board_top(opp);
+        let opp_height = opp.board.height as f64;
+        let opp_size = opp.garbage_queue.size() as f64;
+        (opp_top * opp_multiplier + opp_size.min(20.0) * opp_multiplier
+          - 1.0
+          - (opp_height - BUFFER))
+          .max(0.0)
+      } else {
+        0.0
+      }
+    } else {
+      let multiplier = engine.dynamic.1.get();
+      let board_top = Self::board_top(engine);
+      let board_height = engine.board.height as f64;
+      let garbage_size = engine.garbage_queue.size() as f64;
+      (board_top * multiplier + garbage_size * multiplier - 1.0 - (board_height - BUFFER)).max(0.0)
+    };
+
     let pps = self.config.read().pps;
+    let factor = if is_offensive {
+      FACTOR_OFFENSIVE
+    } else {
+      FACTOR_DEFENSIVE
+    };
+    (size / BUFFER * factor + 1.0).min(Self::max_burst_speed(pps))
+  }
+
+  fn effective_pps(&self, engine: &Engine, opponent: Option<&Engine>) -> f64 {
+    let pps = self.config.read().pps;
+    if !self.config.read().burst {
+      return pps;
+    }
+    match Self::bursting(engine, opponent) {
+      Some(_) => pps * self.burst_factor(engine, opponent),
+      None => pps,
+    }
+  }
+
+  fn next_piece_frame(
+    &self,
+    engine: &Engine,
+    next_hard_drop_frame: Option<f64>,
+    opponent: Option<&Engine>,
+  ) -> u64 {
+    const MAX_DELTA: f64 = 0.2;
+    let pps = self.effective_pps(engine, opponent);
     let last_piece_frame = {
       let state = self.state.read();
       state
@@ -575,7 +669,12 @@ impl Bot {
     }
   }
 
-  fn process_keys(&self, raw: &[Move], engine: &Engine) -> Vec<tick::Keypress> {
+  fn process_keys(
+    &self,
+    raw: &[Move],
+    engine: &Engine,
+    opponent: Option<&Engine>,
+  ) -> Vec<tick::Keypress> {
     struct InternalKeypress {
       key: Key,
       frame: f64,
@@ -608,7 +707,7 @@ impl Bot {
 
         let mut frame = FrameCounter::new(now);
         let time_to_next = (self
-          .next_piece_frame(engine, None)
+          .next_piece_frame(engine, None, opponent)
           .saturating_sub(now)
           .saturating_sub(1))
         .min(MAX_PIECE_FRAMES);
@@ -785,7 +884,20 @@ impl Bot {
       }
     }
 
-    let initial_target = self.next_piece_frame(&input.engine, None);
+    let opponent_engine = self
+      .client
+      .game()
+      .map(|g| {
+        g.state
+          .lock()
+          .players
+          .iter()
+          .find(|p| p.userid != self.client.user.id.as_str())
+          .map(|p| p.state.lock().engine.clone())
+      })
+      .flatten();
+
+    let initial_target = self.next_piece_frame(&input.engine, None, opponent_engine.as_ref());
     {
       let mut state = self.state.write();
       if let Some(game) = &mut state.game {
@@ -805,49 +917,33 @@ impl Bot {
       })
       .collect();
 
-    let opponent = self
-      .client
-      .game()
-      .map(|g| {
-        g.state
-          .lock()
-          .players
-          .iter()
-          .find(|p| p.userid != self.client.user.id.as_str())
-          .map(|p| p.state.lock().engine.clone())
-      })
-      .flatten();
-
-    let mv = self.engine.lock().step(
-      garbage_queue,
-      &match opponent {
-        Some(engine) => {
-          let mut board = Board::new();
-          for (i, row) in engine.board.state.iter().enumerate() {
-            if row
-              .iter()
-              .any(|mino| mino.as_ref().map_or(false, |t| t.mino == Mino::Garbage))
-            {
-              board.garbage = i as u8 + 1;
-            }
-            for (j, tile) in row.iter().enumerate() {
-              if tile.is_some() {
-                board.cols[j] |= 1 << i;
-              }
+    let opponent_game = match &opponent_engine {
+      Some(engine) => {
+        let mut board = Board::new();
+        for (i, row) in engine.board.state.iter().enumerate() {
+          if row
+            .iter()
+            .any(|mino| mino.as_ref().map_or(false, |t| t.mino == Mino::Garbage))
+          {
+            board.garbage = i as u8 + 1;
+          }
+          for (j, tile) in row.iter().enumerate() {
+            if tile.is_some() {
+              board.cols[j] |= 1 << i;
             }
           }
-
-          let mut game = Game::new(engine.falling.symbol);
-          game.board = board;
-
-          game.b2b = engine.stats.b2b as i16;
-          game.combo = engine.stats.combo as i16;
-
-          game
         }
-        None => Game::new(Mino::I),
-      },
-    );
+
+        let mut game = Game::new(engine.falling.symbol);
+        game.board = board;
+        game.b2b = engine.stats.b2b as i16;
+        game.combo = engine.stats.combo as i16;
+        game
+      }
+      None => Game::new(Mino::I),
+    };
+
+    let mv = self.engine.lock().step(garbage_queue, &opponent_game);
 
     tracing::info!(
       "keys: {:?}",
@@ -855,7 +951,7 @@ impl Bot {
     );
 
     let keys = if let Some(res) = mv {
-      self.process_keys(&res.keys, &input.engine)
+      self.process_keys(&res.keys, &input.engine, opponent_engine.as_ref())
     } else {
       vec![]
     };
@@ -866,7 +962,7 @@ impl Bot {
       .find(|kp| kp.data.key == Key::HardDrop)
       .map(|kp| kp.frame as f64);
 
-    let final_target = self.next_piece_frame(&input.engine, hd_frame);
+    let final_target = self.next_piece_frame(&input.engine, hd_frame, opponent_engine.as_ref());
     {
       let mut state = self.state.write();
       if let Some(game) = &mut state.game {

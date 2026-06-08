@@ -3,7 +3,7 @@
 #![allow(incomplete_features)]
 
 pub mod game;
-pub mod game2;
+// pub mod game2;
 pub mod io;
 pub mod keyfinder;
 pub mod search;
