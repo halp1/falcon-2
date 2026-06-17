@@ -159,10 +159,10 @@ pub fn get_keys(mut state: Game, config: &GameConfig, target: Placement) -> Vec<
 
   let map = state.collision_map();
 
-	let start_state = StartState {
-		garbage: &[],
-		queue: &[Mino::I; 32],
-	};
+  let start_state = StartState {
+    garbage: &[],
+    queue: &[Mino::I; 32],
+  };
 
   while front_ptr < back_ptr {
     let (x, y, rot, spin, moves) = queue[front_ptr];

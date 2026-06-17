@@ -16,7 +16,13 @@ mod garbage;
 pub mod queue;
 pub mod rng;
 
-pub const BOARD_WIDTH: usize = 10;
+macro_rules! board_width_macro {
+  () => {
+    10
+  };
+}
+
+pub const BOARD_WIDTH: usize = board_width_macro!();
 pub const BOARD_HEIGHT: usize = 40;
 pub const BOARD_BUFFER: usize = 20;
 
@@ -69,44 +75,13 @@ pub fn print_board(board: Vec<u64>, garbage_height: u8, highlight: (Mino, Vec<(u
 
 #[derive(Clone, Copy, Debug)]
 pub struct CollisionMap {
-  pub states: [[u64; BOARD_WIDTH + 2]; 4],
+  pub states: [[u64; const { BOARD_WIDTH + 2 }]; 4],
 }
-
-// impl CollisionMap {
-//   fn new(board: &[u64; BOARD_WIDTH], piece: &Falling) -> CollisionMap {
-//     let mut states = [[0u64; BOARD_WIDTH + 2]; 4];
-
-//     for rot in 0usize..4usize {
-//       for (dx, dy) in piece.mino.rot(rot as u8) {
-//         let dx = *dx as usize;
-//         for x in 0..BOARD_WIDTH + 2 {
-//           let col = if x >= dx && x - dx < BOARD_WIDTH {
-//             board.get(x - dx).copied().unwrap_or(!0u64)
-//           } else {
-//             !0u64
-//           };
-//           states[rot][x] |= !(!col << dy);
-//         }
-//       }
-//     }
-
-//     CollisionMap { states }
-//   }
-
-//   pub fn test(&self, x: u8, y: u8, rot: u8) -> bool {
-//     let x = x as usize;
-//     let y = y as usize;
-//     if x >= BOARD_WIDTH + 2 || y >= BOARD_HEIGHT {
-//       return true;
-//     }
-//     (self.states[rot as usize][x] >> y) & 1 != 0
-//   }
-// }
 
 impl CollisionMap {
   #[inline(always)]
   pub fn new(board: &[u64; BOARD_WIDTH], piece: &Falling) -> CollisionMap {
-    let mut states = [[0u64; BOARD_WIDTH + 2]; 4];
+    let mut states = [[0u64; const { BOARD_WIDTH + 2 }]; 4];
 
     let mut padded = [!0u64; 32];
     padded[8..8 + BOARD_WIDTH].copy_from_slice(board);
@@ -124,13 +99,13 @@ impl CollisionMap {
       let mask2 = (1u64 << dy2) - 1;
       let mask3 = (1u64 << dy3) - 1;
 
-      macro_rules! compute_column {
+      macro_rules! column {
         ($x:expr) => {
           unsafe {
-            let c0 = *padded.get_unchecked(8 + $x - dx0);
-            let c1 = *padded.get_unchecked(8 + $x - dx1);
-            let c2 = *padded.get_unchecked(8 + $x - dx2);
-            let c3 = *padded.get_unchecked(8 + $x - dx3);
+            let c0 = *padded.get_unchecked(8 + $x + dx0);
+            let c1 = *padded.get_unchecked(8 + $x + dx1);
+            let c2 = *padded.get_unchecked(8 + $x + dx2);
+            let c3 = *padded.get_unchecked(8 + $x + dx3);
 
             states[rot][$x] = ((c0 << dy0) | mask0)
               | ((c1 << dy1) | mask1)
@@ -141,7 +116,7 @@ impl CollisionMap {
       }
 
       for x in 0..BOARD_WIDTH + 2 {
-        compute_column!(x);
+        column!(x);
       }
     }
 
@@ -270,7 +245,11 @@ impl Board {
 
   #[inline(always)]
   fn clear_setup(&mut self) -> (u64, bool) {
-    let clear_mask = self.cols.iter().fold(!0u64, |acc, col| acc & col);
+    let clear_mask = self
+      .cols
+      .into_iter()
+      .reduce(|acc, col| acc & col)
+      .unwrap_or(0);
 
     if clear_mask == 0 {
       return (0, false);
@@ -282,10 +261,9 @@ impl Board {
     (clear_mask, garbage_cleared > 0)
   }
 
-  #[inline(always)]
   #[cfg(target_feature = "bmi2")]
   pub fn clear(&mut self) -> (u8, bool) {
-		use std::arch::x86_64::*;
+    use std::arch::x86_64::*;
 
     let (clear_mask, garbage_cleared) = self.clear_setup();
 
@@ -293,16 +271,14 @@ impl Board {
       return (0, false);
     }
 
-    for x in FULL_WIDTH {
-			unsafe {
-        self.cols[x] = _pext_u64(self.cols[x], !clear_mask);
-      }
-    }
-		
+    self
+      .cols
+      .iter_mut()
+      .for_each(|col| unsafe { *col = _pext_u64(*col, !clear_mask) });
+
     return (clear_mask.count_ones() as u8, garbage_cleared);
   }
 
-  #[inline(always)]
   #[cfg(not(target_feature = "bmi2"))]
   pub fn clear(&mut self) -> (u8, bool) {
     let (clear_mask, garbage_cleared) = self.clear_setup();
@@ -368,13 +344,7 @@ impl Board {
   // }
 
   pub fn is_pc(&self) -> bool {
-    for col in self.cols {
-      if col & (1 << (BOARD_HEIGHT - 1)) != 0 {
-        return true;
-      }
-    }
-
-    false
+    self.cols.iter().all(|&col| col == 0)
   }
 
   pub fn insert_garbage(&mut self, amount: u16, column: u8) {

@@ -1,14 +1,13 @@
+use const_for::const_for;
 use serde::{Deserialize, Serialize};
 use std::marker::ConstParamTy;
-use triangle::engine::utils::KickTable;
-
-use crate::game::{CollisionMap, StartState};
 
 // use super::{Game, GameConfig};
 
+#[derive(Debug)]
 pub struct TetrominoMatrix {
   pub w: u8,
-  pub rots: [[(u8, u8); 4]; 4],
+  pub rots: [[(i8, i8); 4]; 4],
 }
 
 #[derive(ConstParamTy, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -23,11 +22,20 @@ pub enum Mino {
 }
 
 impl Mino {
-  pub const fn real_permuations(&self) -> usize {
+  pub const fn real_permutations(self) -> usize {
     match self {
       Mino::I | Mino::S | Mino::Z => 2,
       Mino::O => 1,
       _ => 4,
+    }
+  }
+
+  #[inline(always)]
+  pub const fn canonical_rot<const PIECE: Mino>(rot: usize) -> usize {
+    match PIECE.real_permutations() {
+      1 => 0,
+      2 => rot & 1,
+      _ => rot,
     }
   }
 
@@ -58,7 +66,7 @@ impl Mino {
   }
 
   #[inline(always)]
-  pub const fn rot(&self, rot: u8) -> &[(u8, u8); 4] {
+  pub const fn rot(&self, rot: u8) -> &[(i8, i8); 4] {
     let rot = rot as usize;
 
     match self {
@@ -85,6 +93,17 @@ impl Mino {
     }
   }
 
+  pub const fn search_size(self) -> u8 {
+    match self {
+      Mino::O => 1,
+      _ => 4,
+    }
+  }
+
+  pub const fn size_of<const PIECE: Mino>() -> usize {
+    PIECE.data().w as usize
+  }
+
   pub const fn str(&self) -> &str {
     match self {
       Mino::I => "I",
@@ -96,77 +115,71 @@ impl Mino {
       Mino::Z => "Z",
     }
   }
+
+  #[inline(always)]
+  pub const fn h_gen(self) -> u8 {
+    match self {
+      Mino::I | Mino::T => 2,
+      Mino::O => 0,
+      _ => 1,
+    }
+  }
+
+  #[inline(always)]
+  pub const fn h_spawn(self) -> u8 {
+    match self {
+      Mino::I => 2,
+      Mino::O => 0,
+      _ => 1,
+    }
+  }
+
+  pub fn from_char(c: char) -> Self {
+    match c.to_ascii_uppercase() {
+      'I' => Mino::I,
+      'T' => Mino::T,
+      'O' => Mino::O,
+      'J' => Mino::J,
+      'L' => Mino::L,
+      'S' => Mino::S,
+      'Z' => Mino::Z,
+      _ => panic!("Invalid mino char: {}", c),
+    }
+  }
 }
 
-pub const TETROMINO_I: TetrominoMatrix = TetrominoMatrix {
-  w: 4, // otherwise it doesn't spawn right
-  rots: [
-    [(0, 1), (1, 1), (2, 1), (3, 1)],
-    [(1, 3), (1, 2), (1, 1), (1, 0)],
-    [(3, 2), (2, 2), (1, 2), (0, 2)],
-    [(2, 0), (2, 1), (2, 2), (2, 3)],
-  ],
-};
+const fn make_matrix(size: u8, initial: [(i8, i8); 4]) -> TetrominoMatrix {
+  let mut rots = [initial; 4];
 
-pub const TETROMINO_L: TetrominoMatrix = TetrominoMatrix {
-  w: 3,
-  rots: [
-    [(0, 0), (0, 1), (1, 1), (2, 1)],
-    [(0, 2), (1, 2), (1, 1), (1, 0)],
-    [(2, 2), (2, 1), (1, 1), (0, 1)],
-    [(2, 0), (1, 0), (1, 1), (1, 2)],
-  ],
-};
+  const_for!(i in 1..4 => {
+    const_for!(j in 0..4 => {
+      // Cleanly grab the block from the PREVIOUS rotation state
+      let prev_block = rots[i - 1][j];
 
-pub const TETROMINO_J: TetrominoMatrix = TetrominoMatrix {
-  w: 3,
-  rots: [
-    [(2, 0), (0, 1), (1, 1), (2, 1)],
-    [(0, 0), (1, 2), (1, 1), (1, 0)],
-    [(0, 2), (2, 1), (1, 1), (0, 1)],
-    [(2, 2), (1, 0), (1, 1), (1, 2)],
-  ],
-};
+      // Apply the 90-degree rotation mapping
+      rots[i][j] = (prev_block.1, -prev_block.0);
+    });
+  });
+
+  TetrominoMatrix { w: size, rots }
+}
+
+pub const TETROMINO_L: TetrominoMatrix = make_matrix(3, [(-1, 0), (0, 0), (1, 0), (1, 1)]);
+
+pub const TETROMINO_J: TetrominoMatrix = make_matrix(3, [(-1, 0), (0, 0), (1, 0), (-1, 1)]);
+
+pub const TETROMINO_Z: TetrominoMatrix = make_matrix(3, [(-1, 1), (0, 1), (0, 0), (1, 0)]);
+
+pub const TETROMINO_T: TetrominoMatrix = make_matrix(3, [(-1, 0), (0, 0), (0, 1), (1, 0)]);
+
+pub const TETROMINO_S: TetrominoMatrix = make_matrix(3, [(-1, 0), (0, 0), (0, 1), (1, 1)]);
 
 pub const TETROMINO_O: TetrominoMatrix = TetrominoMatrix {
   w: 2,
-  rots: [
-    [(0, 0), (1, 0), (0, 1), (1, 1)],
-    [(0, 1), (0, 0), (1, 1), (1, 0)],
-    [(1, 1), (0, 1), (1, 0), (0, 0)],
-    [(1, 0), (1, 1), (0, 0), (0, 1)],
-  ],
+  rots: [[(0, 0), (0, 1), (1, 0), (1, 1)]; 4],
 };
 
-pub const TETROMINO_Z: TetrominoMatrix = TetrominoMatrix {
-  w: 3,
-  rots: [
-    [(1, 0), (2, 0), (0, 1), (1, 1)],
-    [(0, 1), (0, 0), (1, 2), (1, 1)],
-    [(1, 2), (0, 2), (2, 1), (1, 1)],
-    [(2, 1), (2, 2), (1, 0), (1, 1)],
-  ],
-};
-
-pub const TETROMINO_T: TetrominoMatrix = TetrominoMatrix {
-  w: 3,
-  rots: [
-    [(1, 0), (0, 1), (1, 1), (2, 1)],
-    [(0, 1), (1, 2), (1, 1), (1, 0)],
-    [(1, 2), (2, 1), (1, 1), (0, 1)],
-    [(2, 1), (1, 0), (1, 1), (1, 2)],
-  ],
-};
-
-pub const TETROMINO_S: TetrominoMatrix = TetrominoMatrix {
-  w: 3,
-  rots: [
-    [(0, 0), (1, 0), (1, 1), (2, 1)],
-    [(0, 2), (0, 1), (1, 1), (1, 0)],
-    [(2, 2), (1, 2), (1, 1), (0, 1)],
-    [(2, 0), (2, 1), (1, 1), (1, 2)],
-  ],
-};
+pub const TETROMINO_I: TetrominoMatrix = make_matrix(5, [(-1, 0), (0, 0), (1, 0), (2, 0)]);
 
 pub type CornerTable = [[((i8, i8), Option<(u8, u8)>); 4]; 4];
 
@@ -312,38 +325,91 @@ const INDEX_LOOKUP_TABLE: [[u8; 4]; 4] = [
   [6, 11, 5, 255],
 ];
 
-pub trait KickTableData {
-  fn get_index(from: u8, to: u8) -> usize;
-  fn data_fast(&self, mino: Mino, from: u8, to: u8) -> &[(i8, i8); 11];
+#[derive(ConstParamTy, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum KickTable {
+  #[serde(rename = "none")]
+  None,
+  #[serde(rename = "SRS")]
+  SRS,
+  #[serde(rename = "SRS+")]
+  SRSPlus,
+  #[serde(rename = "SRS-X")]
+  SRSX,
 }
 
-impl KickTableData for KickTable {
+impl KickTable {
   #[inline(always)]
-  fn get_index(from: u8, to: u8) -> usize {
+  pub const fn get_index(from: u8, to: u8) -> usize {
     INDEX_LOOKUP_TABLE[from as usize][to as usize] as usize
   }
 
   #[inline(always)]
-  fn data_fast(&self, mino: Mino, from: u8, to: u8) -> &[(i8, i8); 11] {
-    let kick_table = match self {
+  pub const fn raw(&self) -> &KickData {
+    match self {
+      KickTable::None => &NONE_KICKS,
       KickTable::SRS => &SRS_KICKS,
       KickTable::SRSPlus => &SRS_PLUS_KICKS,
       KickTable::SRSX => &SRS_X_KICKS,
-      _ => panic!("Unsupported kick table: {:?}", self),
-    };
+    }
+  }
+
+  #[inline(always)]
+  pub const fn data(&self, mino: Mino, from: u8, to: u8) -> &[(i8, i8); KICKTABLE_SIZE] {
     match mino {
-      Mino::I => &kick_table.i[KickTable::get_index(from, to)],
-      _ => &kick_table.standard[KickTable::get_index(from, to)],
+      Mino::I => &self.raw().i[KickTable::get_index(from, to)],
+      _ => &self.raw().standard[KickTable::get_index(from, to)],
     }
   }
 }
 
+const KICKTABLE_SIZE: usize = 11;
+
 pub struct KickData {
-  pub standard: [[(i8, i8); 11]; 12],
-  pub i: [[(i8, i8); 11]; 12],
+  pub real_size: usize,
+  pub standard: [[(i8, i8); KICKTABLE_SIZE]; 12],
+  pub i: [[(i8, i8); KICKTABLE_SIZE]; 12],
 }
 
+const I_OFFSET_TABLE: [(i8, i8); 4] = [(0, 0), (-1, 0), (-1, -1), (0, -1)];
+
+impl KickData {
+  /// modify i kicks to work with true rotation
+  pub const fn convert_i_kicks(&self) -> Self {
+    let mut i = self.i;
+    const_for!(from in 0..4i8 => {
+      const_for!(to in 0..4i8 => {
+        if from != to {
+          let index = KickTable::get_index(from as u8, to as u8);
+
+          const_for!(kick_idx in 0..KICKTABLE_SIZE => {
+            {
+              let o1 = I_OFFSET_TABLE[from as usize];
+              let o2 = I_OFFSET_TABLE[to as usize];
+              i[index][kick_idx].0 += o1.0 - o2.0;
+              i[index][kick_idx].1 += o1.1 - o2.1;
+            }
+          });
+
+        }
+      });
+    });
+
+    Self {
+      real_size: self.real_size,
+      standard: self.standard,
+      i,
+    }
+  }
+}
+
+pub const NONE_KICKS: KickData = KickData {
+  real_size: 1,
+  standard: [[(0, 0); KICKTABLE_SIZE]; 12],
+  i: [[(0, 0); KICKTABLE_SIZE]; 12],
+};
+
 pub const SRS_KICKS: KickData = KickData {
+  real_size: 5,
   standard: [
     [
       (0, 0),
@@ -660,9 +726,11 @@ pub const SRS_KICKS: KickData = KickData {
       (0, 0),
     ], // 3->1
   ],
-};
+}
+.convert_i_kicks();
 
 pub const SRS_PLUS_KICKS: KickData = KickData {
+  real_size: 5,
   standard: [
     [
       (0, 0),
@@ -979,9 +1047,11 @@ pub const SRS_PLUS_KICKS: KickData = KickData {
       (0, 0),
     ], // 3->1
   ],
-};
+}
+.convert_i_kicks();
 
 pub const SRS_X_KICKS: KickData = KickData {
+  real_size: KICKTABLE_SIZE,
   standard: [
     [
       (0, 0),
@@ -1298,7 +1368,8 @@ pub const SRS_X_KICKS: KickData = KickData {
       (0, 0),
     ], // 3->1
   ],
-};
+}
+.convert_i_kicks();
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
@@ -1329,30 +1400,30 @@ pub enum Move {
 
 impl Move {
   #[inline(always)]
-  pub fn run(
-    &self,
-    game: &mut Game,
-    config: &GameConfig,
-    map: &CollisionMap,
-    start: &StartState,
-  ) -> bool {
-    match self {
-      Move::Left => game.move_left(&map),
-      Move::Right => game.move_right(&map),
-      Move::SoftDrop => game.soft_drop(&map),
-      Move::CCW => game.rotate(3, config, &map).0,
-      Move::CW => game.rotate(1, config, &map).0,
-      Move::Flip => game.rotate(2, config, &map).0,
-      Move::None => panic!("None move called...cf"),
-      Move::DasLeft => game.das_left(&map),
-      Move::DasRight => game.das_right(&map),
-      Move::Hold => game.hold(start),
-      Move::HardDrop => {
-        game.soft_drop(&map);
-        true
-      }
-    }
-  }
+  // pub fn run(
+  //   &self,
+  //   game: &mut Game,
+  //   config: &GameConfig,
+  //   map: &CollisionMap,
+  //   start: &StartState,
+  // ) -> bool {
+  //   match self {
+  //     Move::Left => game.move_left(&map),
+  //     Move::Right => game.move_right(&map),
+  //     Move::SoftDrop => game.soft_drop(&map),
+  //     Move::CCW => game.rotate(3, config, &map).0,
+  //     Move::CW => game.rotate(1, config, &map).0,
+  //     Move::Flip => game.rotate(2, config, &map).0,
+  //     Move::None => panic!("None move called...cf"),
+  //     Move::DasLeft => game.das_left(&map),
+  //     Move::DasRight => game.das_right(&map),
+  //     Move::Hold => game.hold(start),
+  //     Move::HardDrop => {
+  //       game.soft_drop(&map);
+  //       true
+  //     }
+  //   }
+  // }
 
   pub fn str(&self) -> &str {
     match self {
