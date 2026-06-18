@@ -153,7 +153,7 @@ pub fn expand<const PIECE: Mino, const CONFIG: ConstConfig>(
   let mut remaining = Bitset::new(const { PIECE.real_permutations() });
   let mut complete = Bitset::new(const { PIECE.search_size() as usize });
 
-  let spawn_y = 19u8;
+  let spawn_y = 21u8;
   let h_spawn = PIECE.h_spawn();
   let board_y = initial_pos.1;
 

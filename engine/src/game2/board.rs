@@ -111,64 +111,42 @@ impl Board {
 
   #[inline(always)]
   pub fn shift_left(&self) -> Self {
-    let mut board = Self::new();
-    board.data[0] = self.data[1];
-    board.data[1] = self.data[2];
-    board.data[2] = self.data[3];
-    board.data[3] = self.data[4];
-    board.data[4] = self.data[5];
-    board.data[5] = self.data[6];
-    board.data[6] = self.data[7];
-    board.data[7] = self.data[8];
-    board.data[8] = self.data[9];
-    board
+    Self {
+      data: std::array::from_fn(|i| {
+        if i < Board::WIDTH - 1 {
+          unsafe { *self.data.get_unchecked(i + 1) }
+        } else {
+          0
+        }
+      }),
+    }
   }
 
   #[inline(always)]
   pub fn shift_right(&self) -> Self {
-    let mut board = Self::new();
-    board.data[1] = self.data[0];
-    board.data[2] = self.data[1];
-    board.data[3] = self.data[2];
-    board.data[4] = self.data[3];
-    board.data[5] = self.data[4];
-    board.data[6] = self.data[5];
-    board.data[7] = self.data[6];
-    board.data[8] = self.data[7];
-    board.data[9] = self.data[8];
-    board
+    Self {
+      data: std::array::from_fn(|i| {
+        if i == 0 {
+          0
+        } else {
+          unsafe { *self.data.get_unchecked(i - 1) }
+        }
+      }),
+    }
   }
 
   #[inline(always)]
   pub fn shift_down(&self) -> Self {
-    let mut board = Self::new();
-    board.data[0] = self.data[0] >> 1;
-    board.data[1] = self.data[1] >> 1;
-    board.data[2] = self.data[2] >> 1;
-    board.data[3] = self.data[3] >> 1;
-    board.data[4] = self.data[4] >> 1;
-    board.data[5] = self.data[5] >> 1;
-    board.data[6] = self.data[6] >> 1;
-    board.data[7] = self.data[7] >> 1;
-    board.data[8] = self.data[8] >> 1;
-    board.data[9] = self.data[9] >> 1;
-    board
+    Self {
+      data: self.data.map(|c| c >> 1),
+    }
   }
 
   #[inline(always)]
   pub fn shift_up(&self) -> Self {
-    let mut board = Self::new();
-    board.data[0] = self.data[0] << 1;
-    board.data[1] = self.data[1] << 1;
-    board.data[2] = self.data[2] << 1;
-    board.data[3] = self.data[3] << 1;
-    board.data[4] = self.data[4] << 1;
-    board.data[5] = self.data[5] << 1;
-    board.data[6] = self.data[6] << 1;
-    board.data[7] = self.data[7] << 1;
-    board.data[8] = self.data[8] << 1;
-    board.data[9] = self.data[9] << 1;
-    board
+    Self {
+      data: self.data.map(|c| c << 1),
+    }
   }
 
   #[inline(always)]
@@ -202,11 +180,7 @@ impl Board {
 
   #[inline(always)]
   pub fn is_empty(&self) -> bool {
-    let mut tmp = 0;
-    for x in 0..Self::WIDTH {
-      tmp |= self.data[x];
-    }
-    tmp == 0
+    self.data.iter().all(|&x| x == 0)
   }
 
   #[inline(always)]
@@ -327,6 +301,7 @@ use std::ops::{
   BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr,
   ShrAssign,
 };
+
 impl BitOrAssign for Board {
   #[inline(always)]
   fn bitor_assign(&mut self, rhs: Self) {
@@ -437,9 +412,6 @@ impl PartialEq for Board {
 impl Eq for Board {}
 
 use std::ops::{Index, IndexMut};
-
-#[cfg(not(target_feature = "bmi2"))]
-use triangle::engine::events::garbage;
 
 const impl Index<usize> for Board {
   type Output = u64;

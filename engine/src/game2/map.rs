@@ -137,7 +137,7 @@ impl CollisionMap {
 
   pub fn landable(&self) -> Self {
     CollisionMap {
-      data: std::array::from_fn(|i| self.data[i] & !self.data[i].shift(0, 1)),
+      data: self.data.map(|b| b & !b.shift_up()),
     }
   }
 
