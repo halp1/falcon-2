@@ -31,20 +31,11 @@ fn perft(board: &Board, queue: &[Mino], depth: usize) -> u64 {
     let mut nodes = 0;
     let res = expand_mapped(queue[depth], board)[0];
     res.for_each_filled(queue[depth], |rot, x, y| {
-      let mut b2 = board.clone();
-      let blocks = queue[depth]
-        .rot(rot)
-        .map(|(bx, by)| ((x as i8 + bx) as u8, (y as i8 + by) as u8));
-
-      if y >= 30 {
-        board.print();
-        res.data.iter().for_each(|b| b.print());
-        panic!("invalid y value found: {}", y);
+      let mut b2 = *board;
+      let rot_blocks = queue[depth].rot(rot);
+      for &(bx, by) in rot_blocks {
+        b2.set_unchecked((x as i8 + bx) as usize, (y as i8 + by) as u8);
       }
-
-      blocks
-        .iter()
-        .for_each(|&(x, y)| b2.set(x as usize, y as u8));
 
       b2.clear(0);
 

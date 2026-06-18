@@ -32,19 +32,31 @@ const fn kick_table_data_y<
   kick_table_data::<CONFIG, PIECE, ROT, AMT, I>().1
 }
 
-const fn canonical_offset(piece: Mino, rot: usize) -> (i8, i8) {
+const fn canonical_offset_x(piece: Mino, rot: usize) -> i8 {
   match piece {
     Mino::I => match rot {
-      2 => (1, 0),
-      3 => (0, -1),
-      _ => (0, 0),
+      2 => 1,
+      _ => 0,
     },
     Mino::S | Mino::Z => match rot {
-      2 => (0, 1),
-      3 => (1, 0),
-      _ => (0, 0),
+      3 => 1,
+      _ => 0,
     },
-    _ => (0, 0),
+    _ => 0,
+  }
+}
+
+const fn canonical_offset_y(piece: Mino, rot: usize) -> i8 {
+  match piece {
+    Mino::I => match rot {
+      3 => -1,
+      _ => 0,
+    },
+    Mino::S | Mino::Z => match rot {
+      2 => 1,
+      _ => 0,
+    },
+    _ => 0,
   }
 }
 
@@ -170,8 +182,8 @@ pub fn expand<const PIECE: Mino, const CONFIG: ConstConfig>(
         search[rot][x] = ((1u64 << Board::HEIGHT) - 1) ^ fill;
       }
 
-      search[rot] |= (search[rot].shift(-1, 0) | search[rot].shift(1, 0)) & cmap[rot];
-      search[rot] |= (search[rot].shift(-1, 0) | search[rot].shift(1, 0)) & cmap[rot];
+      search[rot] |= (search[rot].shift_left() | search[rot].shift_right()) & cmap[rot];
+      search[rot] |= (search[rot].shift_left() | search[rot].shift_right()) & cmap[rot];
     }
 
     let is_group3 = matches!(PIECE, Mino::T | Mino::L | Mino::J);
@@ -217,9 +229,9 @@ pub fn expand<const PIECE: Mino, const CONFIG: ConstConfig>(
         let rot_c = const { Mino::canonical_rot::<PIECE>(ROT) };
 
         loop {
-          let tmp = (search[ROT].shift(-1, 0)
-            | search[ROT].shift(1, 0)
-            | search[ROT].shift(0, -1))
+          let tmp = (search[ROT].shift_left()
+            | search[ROT].shift_right()
+            | search[ROT].shift_down())
             & unsearched[ROT];
 
           if tmp.is_empty() {
@@ -255,18 +267,16 @@ pub fn expand<const PIECE: Mino, const CONFIG: ConstConfig>(
             let rotated = const { (ROT + $amt as usize) & 3 };
             let rotated_c = Mino::canonical_rot::<PIECE>(rotated);
 
-            let (ox, oy) = canonical_offset(PIECE, ROT);
-            let (orx, ory) = canonical_offset(PIECE, rotated);
-            let off_x = ox - orx;
-            let off_y = oy - ory;
+            let off_x = canonical_offset_x(PIECE, ROT) - canonical_offset_x(PIECE, rotated);
+            let off_y = canonical_offset_y(PIECE, ROT) - canonical_offset_y(PIECE, rotated);
 
             let mut tmp = search[ROT];
             let mut result = Board::new();
 
             const_for_dynamic!(I_UNCHECKED in 0..KickTableSize::<CONFIG>::VALUE => {
               const I: usize = if I_UNCHECKED > 10 { 10 } else { I_UNCHECKED };
-              let dx = data_x!(I) + off_x;
-              let dy = -data_y!(I) + off_y;
+              let dx = kick_table_data_x::<CONFIG, PIECE, ROT, $amt, I>() + off_x;
+              let dy = -kick_table_data_y::<CONFIG, PIECE, ROT, $amt, I>() + off_y;
               result |= tmp.shift(dx, dy);
 
               if I != CONFIG.kicktable.raw().real_size - 1 {

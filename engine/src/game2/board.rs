@@ -31,44 +31,191 @@ impl Board {
   }
 
   #[inline(always)]
-  pub fn get(&self, x: usize, y: u8) -> bool {
-    (self.data[x] & (1u64 << y)) != 0
+  pub fn set_unchecked(&mut self, x: usize, y: u8) {
+    unsafe {
+      *self.data.get_unchecked_mut(x) |= 1u64 << y;
+    }
   }
 
   #[inline(always)]
-  pub fn shift(&self, dx: i8, dy: i8) -> Self {
-    let mut board = Self::new();
-
-    for i in 0..(Self::WIDTH - dx.abs() as usize) {
-      board[i + if dx >= 0 { dx } else { 0 } as usize] = {
-        let v = self[i + if dx < 0 { -dx } else { 0 } as usize];
-
-        if dy > 0 {
-          v << dy
-        } else if dy < 0 {
-          v >> -dy
-        } else {
-          v
+  pub fn clear_lines(&mut self, mut lines: u64) {
+    loop {
+      let mask = !(((lines as i64 & -(lines as i64)) - 1) as u64);
+      for x in 0..Self::WIDTH {
+        unsafe {
+          let col = *self.data.get_unchecked(x);
+          *self.data.get_unchecked_mut(x) = col ^ ((col ^ (col >> 1)) & mask);
         }
-      };
+      }
+      lines = (lines & (lines - 1)) >> 1;
+      if lines == 0 {
+        break;
+      }
+    }
+  }
+
+  #[inline(always)]
+  pub const fn shift_const<const DX: i8, const DY: i8>(&self) -> Self {
+    let mut board = Self::new();
+    if DX >= Self::WIDTH as i8
+      || DX <= -(Self::WIDTH as i8)
+      || DY >= Self::HEIGHT as i8
+      || DY <= -(Self::HEIGHT as i8)
+    {
+      return board;
+    }
+
+    if DX == 0 && DY == 0 {
+      return *self;
+    }
+
+    if DX >= 0 {
+      let adx = DX as usize;
+      let limit = Self::WIDTH - adx;
+      let mut i = 0;
+      while i < limit {
+        let val = self.data[i];
+        board.data[i + adx] = if DY > 0 {
+          val << DY
+        } else if DY < 0 {
+          val >> -DY
+        } else {
+          val
+        };
+        i += 1;
+      }
+    } else {
+      let adx = -DX as usize;
+      let limit = Self::WIDTH - adx;
+      let mut i = 0;
+      while i < limit {
+        let val = self.data[i + adx];
+        board.data[i] = if DY > 0 {
+          val << DY
+        } else if DY < 0 {
+          val >> -DY
+        } else {
+          val
+        };
+        i += 1;
+      }
     }
 
     board
   }
 
-  #[inline]
-  pub fn is_empty(&self) -> bool {
-    !self.data.iter().any(|&f| f != 0)
+  #[inline(always)]
+  pub fn get(&self, x: usize, y: u8) -> bool {
+    (self.data[x] & (1u64 << y)) != 0
   }
 
+  #[inline(always)]
+  pub fn shift_left(&self) -> Self {
+    let mut board = Self::new();
+    board.data[0] = self.data[1];
+    board.data[1] = self.data[2];
+    board.data[2] = self.data[3];
+    board.data[3] = self.data[4];
+    board.data[4] = self.data[5];
+    board.data[5] = self.data[6];
+    board.data[6] = self.data[7];
+    board.data[7] = self.data[8];
+    board.data[8] = self.data[9];
+    board
+  }
+
+  #[inline(always)]
+  pub fn shift_right(&self) -> Self {
+    let mut board = Self::new();
+    board.data[1] = self.data[0];
+    board.data[2] = self.data[1];
+    board.data[3] = self.data[2];
+    board.data[4] = self.data[3];
+    board.data[5] = self.data[4];
+    board.data[6] = self.data[5];
+    board.data[7] = self.data[6];
+    board.data[8] = self.data[7];
+    board.data[9] = self.data[8];
+    board
+  }
+
+  #[inline(always)]
+  pub fn shift_down(&self) -> Self {
+    let mut board = Self::new();
+    board.data[0] = self.data[0] >> 1;
+    board.data[1] = self.data[1] >> 1;
+    board.data[2] = self.data[2] >> 1;
+    board.data[3] = self.data[3] >> 1;
+    board.data[4] = self.data[4] >> 1;
+    board.data[5] = self.data[5] >> 1;
+    board.data[6] = self.data[6] >> 1;
+    board.data[7] = self.data[7] >> 1;
+    board.data[8] = self.data[8] >> 1;
+    board.data[9] = self.data[9] >> 1;
+    board
+  }
+
+  #[inline(always)]
+  pub fn shift_up(&self) -> Self {
+    let mut board = Self::new();
+    board.data[0] = self.data[0] << 1;
+    board.data[1] = self.data[1] << 1;
+    board.data[2] = self.data[2] << 1;
+    board.data[3] = self.data[3] << 1;
+    board.data[4] = self.data[4] << 1;
+    board.data[5] = self.data[5] << 1;
+    board.data[6] = self.data[6] << 1;
+    board.data[7] = self.data[7] << 1;
+    board.data[8] = self.data[8] << 1;
+    board.data[9] = self.data[9] << 1;
+    board
+  }
+
+  #[inline(always)]
+  pub fn shift(&self, dx: i8, dy: i8) -> Self {
+    let mut board = Self::new();
+    let adx = dx.unsigned_abs() as usize;
+    if adx >= Self::WIDTH {
+      return board;
+    }
+
+    let limit = Self::WIDTH - adx;
+
+    for i in 0..limit {
+      let src_idx = if dx < 0 { i + adx } else { i };
+      let dest_idx = if dx >= 0 { i + adx } else { i };
+      let v = unsafe { *self.data.get_unchecked(src_idx) };
+
+      unsafe {
+        *board.data.get_unchecked_mut(dest_idx) = if dy > 0 {
+          v << dy
+        } else if dy < 0 {
+          v >> -dy
+        } else {
+          v
+        };
+      }
+    }
+
+    board
+  }
+
+  #[inline(always)]
+  pub fn is_empty(&self) -> bool {
+    let mut tmp = 0;
+    for x in 0..Self::WIDTH {
+      tmp |= self.data[x];
+    }
+    tmp == 0
+  }
+
+  #[inline(always)]
   pub fn real_height(&self) -> u32 {
-    u64::BITS
-      - self
-        .data
-        .iter()
-        .reduce(|a, b| a.max(b))
-        .unwrap()
-        .leading_zeros()
+    let mut tmp = 0;
+    for x in 0..Self::WIDTH {
+      tmp |= self.data[x];
+    }
+    64 - tmp.leading_zeros()
   }
 
   pub fn str_vec(&self, height: u32) -> Vec<String> {
@@ -97,17 +244,27 @@ impl Board {
       .for_each(|str| println!("{}", str));
   }
 
+  #[inline(always)]
   pub fn count_ones(&self) -> u32 {
-    self.data.iter().map(|c| c.count_ones()).sum()
+    let mut sum = 0;
+    for x in 0..Self::WIDTH {
+      sum += self.data[x].count_ones();
+    }
+    sum
+  }
+
+  #[inline(always)]
+  pub fn line_clears(&self) -> u64 {
+    let mut acc = !0u64;
+    for x in 0..Self::WIDTH {
+      acc &= self.data[x];
+    }
+    acc
   }
 
   #[inline(always)]
   fn clear_setup(&mut self, garbage_level: u8) -> (u64, u8) {
-    let clear_mask = self
-      .data
-      .into_iter()
-      .reduce(|acc, col| acc & col)
-      .unwrap_or(0);
+    let clear_mask = self.line_clears();
 
     if clear_mask == 0 {
       return (0, 0);
@@ -142,25 +299,27 @@ impl Board {
 
   #[cfg(not(target_feature = "bmi2"))]
   pub fn clear(&mut self, garbage_level: u8) -> (u8, u8) {
-    let (clear_mask, garbage_cleared) = self.clear_setup(garbage_level);
+    let (mut clear_mask, garbage_cleared) = self.clear_setup(garbage_level);
 
     if clear_mask == 0 {
       return (0, 0);
     }
 
-    while clear_mask != 0 {
-      let y = 63 - clear_mask.leading_zeros();
-      for x in FULL_WIDTH {
-        let low_mask = (1u64 << y) - 1;
-        let low = self.data[x] & low_mask;
-        let high = self.data[x] >> (y + 1);
-        self.data[x] = (high << y) | low;
-      }
+    let cleared_count = clear_mask.count_ones() as u8;
 
-      clear_mask ^= 1u64 << y;
+    loop {
+      let mask = !(((clear_mask as i64 & -(clear_mask as i64)) - 1) as u64);
+      for x in 0..Self::WIDTH {
+        let col = self.data[x];
+        self.data[x] = col ^ ((col ^ (col >> 1)) & mask);
+      }
+      clear_mask = (clear_mask & (clear_mask - 1)) >> 1;
+      if clear_mask == 0 {
+        break;
+      }
     }
 
-    (clear_mask.count_ones() as u8, garbage_cleared)
+    (cleared_count, garbage_cleared)
   }
 }
 

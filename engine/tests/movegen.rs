@@ -15,11 +15,10 @@ use engine::game2::{
   config::ConstConfig,
   data::{KickTable, Mino},
   map::CollisionMap,
-  movegen::{expand},
+  movegen::expand,
 };
 
-fn test_piece<const PIECE: Mino>(board: &Board)
-{
+fn test_piece<const PIECE: Mino>(board: &Board) {
   let map = CollisionMap::usable::<PIECE>(board);
 
   println!("\nboard:");
@@ -45,7 +44,10 @@ fn test_piece<const PIECE: Mino>(board: &Board)
   println!("result:");
   result_map.print_cropped::<{ Mino::T }>(10);
 
-  assert!(false, "test");
+  assert!(
+    result_map.count_ones() > 0,
+    "expected at least one valid placement from expand()"
+  );
 }
 
 #[test]
