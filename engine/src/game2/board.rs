@@ -327,98 +327,104 @@ use std::ops::{
   BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr,
   ShrAssign,
 };
+impl BitOrAssign for Board {
+  #[inline(always)]
+  fn bitor_assign(&mut self, rhs: Self) {
+    for (lhs, rhs) in self.data.iter_mut().zip(rhs.data.iter()) {
+      *lhs |= *rhs;
+    }
+  }
+}
 
 impl BitOr for Board {
-  type Output = Board;
-  fn bitor(self, rhs: Self) -> Self::Output {
-    Board {
-      data: std::array::from_fn(|i| self.data[i] | rhs.data[i]),
+  type Output = Self;
+  #[inline(always)]
+  fn bitor(mut self, rhs: Self) -> Self::Output {
+    self |= rhs;
+    self
+  }
+}
+
+impl BitAndAssign for Board {
+  #[inline(always)]
+  fn bitand_assign(&mut self, rhs: Self) {
+    for (lhs, rhs) in self.data.iter_mut().zip(rhs.data.iter()) {
+      *lhs &= *rhs;
     }
   }
 }
 
 impl BitAnd for Board {
-  type Output = Board;
-  fn bitand(self, rhs: Self) -> Self::Output {
-    Board {
-      data: std::array::from_fn(|i| self.data[i] & rhs.data[i]),
+  type Output = Self;
+  #[inline(always)]
+  fn bitand(mut self, rhs: Self) -> Self::Output {
+    self &= rhs;
+    self
+  }
+}
+
+impl BitXorAssign for Board {
+  #[inline(always)]
+  fn bitxor_assign(&mut self, rhs: Self) {
+    for (lhs, rhs) in self.data.iter_mut().zip(rhs.data.iter()) {
+      *lhs ^= *rhs;
     }
   }
 }
 
 impl BitXor for Board {
-  type Output = Board;
-  fn bitxor(self, rhs: Self) -> Self::Output {
-    Board {
-      data: std::array::from_fn(|i| self.data[i] ^ rhs.data[i]),
-    }
+  type Output = Self;
+  #[inline(always)]
+  fn bitxor(mut self, rhs: Self) -> Self::Output {
+    self |= rhs; // Leverages register reuse
+    self
   }
 }
 
 impl Not for Board {
-  type Output = Board;
-  fn not(self) -> Self::Output {
-    Board {
-      data: std::array::from_fn(|i| !self.data[i]),
+  type Output = Self;
+  #[inline(always)]
+  fn not(mut self) -> Self::Output {
+    for val in self.data.iter_mut() {
+      *val = !*val;
     }
+    self
   }
 }
 
-impl BitOrAssign for Board {
-  fn bitor_assign(&mut self, rhs: Self) {
-    for i in 0..self.data.len() {
-      self.data[i] |= rhs.data[i];
-    }
-  }
-}
-
-impl BitAndAssign for Board {
-  fn bitand_assign(&mut self, rhs: Self) {
-    for i in 0..self.data.len() {
-      self.data[i] &= rhs.data[i];
-    }
-  }
-}
-
-impl BitXorAssign for Board {
-  fn bitxor_assign(&mut self, rhs: Self) {
-    for i in 0..self.data.len() {
-      self.data[i] ^= rhs.data[i];
+impl ShlAssign<usize> for Board {
+  #[inline(always)]
+  fn shl_assign(&mut self, rhs: usize) {
+    for val in self.data.iter_mut() {
+      *val <<= rhs;
     }
   }
 }
 
 impl Shl<usize> for Board {
-  type Output = Board;
-  fn shl(self, rhs: usize) -> Self::Output {
-    Board {
-      data: std::array::from_fn(|i| self.data[i] << rhs),
+  type Output = Self;
+  #[inline(always)]
+  fn shl(mut self, rhs: usize) -> Self::Output {
+    self <<= rhs;
+    self
+  }
+}
+
+impl ShrAssign<usize> for Board {
+  #[inline(always)]
+  fn shr_assign(&mut self, rhs: usize) {
+    for val in self.data.iter_mut() {
+      *val >>= rhs;
     }
   }
 }
 
 impl Shr<usize> for Board {
-  type Output = Board;
-  fn shr(self, rhs: usize) -> Self::Output {
-    Board {
-      data: std::array::from_fn(|i| self.data[i] >> rhs),
-    }
-  }
-}
-
-impl ShlAssign<usize> for Board {
-  fn shl_assign(&mut self, rhs: usize) {
-    for i in 0..self.data.len() {
-      self.data[i] <<= rhs;
-    }
-  }
-}
-
-impl ShrAssign<usize> for Board {
-  fn shr_assign(&mut self, rhs: usize) {
-    for i in 0..self.data.len() {
-      self.data[i] >>= rhs;
-    }
+  type Output = Self;
+  #[inline(always)]
+  fn shr(mut self, rhs: usize) -> Self::Output {
+    self >>= rhs;
+    self
   }
 }
 
